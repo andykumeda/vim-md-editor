@@ -431,6 +431,10 @@ app.on('open-file', (event, filePath) => {
       mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
       updateWindowTitle();
       app.addRecentDocument(filePath);
+      
+      // Bring window to front
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
       mainWindow.focus();
     } catch (e) {
       dialog.showErrorBox('Error opening file', String(e));
@@ -447,7 +451,14 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else if (mainWindow) {
+      // Bring existing window to front
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 });
 

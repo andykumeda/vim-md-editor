@@ -9,14 +9,14 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "build": "tsx script/build.ts",
+    "build": "tsx script/build.ts && npm run electron:build",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "electron:dev": "concurrently \"vite --config vite.config.ts\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
-    "electron:build": "vite build && electron-builder --mac --arm64",
-    "electron:build:x64": "vite build && electron-builder --mac --x64",
-    "electron:build:universal": "vite build && electron-builder --mac --universal"
+    "electron:build": "vite build && electron-builder --mac --arm64 && xattr -dr com.apple.quarantine release/mac-arm64/VimDown.app || true",
+    "electron:build:x64": "vite build && electron-builder --mac --x64 && xattr -dr com.apple.quarantine release/mac-x64/VimDown.app || true",
+    "electron:build:universal": "vite build && electron-builder --mac --universal && xattr -dr com.apple.quarantine release/mac-universal/VimDown.app || true"
   },
   "build": {
     "appId": "com.kumeda.vimdown",
