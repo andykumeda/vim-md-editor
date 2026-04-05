@@ -432,10 +432,11 @@ app.on('open-file', (event, filePath) => {
       updateWindowTitle();
       app.addRecentDocument(filePath);
       
-      // Bring window to front
+      // Bring window to front (steal focus from Finder)
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
+      app.focus({ steal: true });
     } catch (e) {
       dialog.showErrorBox('Error opening file', String(e));
     }

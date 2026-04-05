@@ -8,6 +8,7 @@ import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codem
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
 import { vim, getCM } from "@replit/codemirror-vim";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   Sun,
   Moon,
@@ -20,6 +21,19 @@ import {
   FolderOpen,
   FilePlus,
   Save,
+  Bold,
+  Italic,
+  Strikethrough,
+  Code,
+  Link,
+  List,
+  ListOrdered,
+  Quote,
+  Minus,
+  Table,
+  Heading1,
+  Heading2,
+  Heading3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -325,7 +339,10 @@ export default function EditorPage() {
     img { max-width: 100%; }
   `;
 
-  const getRenderedHTML = useCallback(() => marked.parse(content) as string, [content]);
+  const getRenderedHTML = useCallback(
+    () => DOMPurify.sanitize(marked.parse(content) as string),
+    [content]
+  );
 
   const handlePrint = useCallback(() => {
     const html = getRenderedHTML();
@@ -391,6 +408,43 @@ export default function EditorPage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, [content, fileName]);
+
+  // ─── Markdown formatting helpers (non-Vim mode) ──────────────────────────────
+  const insertMarkdown = useCallback((before: string, after = "", placeholder = "text") => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.focus();
+    const { from, to } = view.state.selection.main;
+    const selected = view.state.sliceDoc(from, to);
+    const inner = selected || placeholder;
+    view.dispatch({
+      changes: { from, to, insert: before + inner + after },
+      selection: { anchor: from + before.length, head: from + before.length + inner.length },
+    });
+  }, []);
+
+  const insertLinePrefix = useCallback((prefix: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.focus();
+    const { from } = view.state.selection.main;
+    const line = view.state.doc.lineAt(from);
+    view.dispatch({
+      changes: { from: line.from, to: line.from, insert: prefix },
+      selection: { anchor: from + prefix.length },
+    });
+  }, []);
+
+  const insertBlock = useCallback((text: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.focus();
+    const { from } = view.state.selection.main;
+    view.dispatch({
+      changes: { from, to: from, insert: text },
+      selection: { anchor: from + text.length },
+    });
+  }, []);
 
   // ─── Drag-to-resize ─────────────────────────────────────────────────────────
   const handleMouseDown = useCallback(() => {
@@ -542,6 +596,138 @@ export default function EditorPage() {
           </Tooltip>
         </div>
       </header>
+
+      {/* Markdown formatting toolbar — only shown when Vim mode is off */}
+      {!vimEnabled && (
+        <div className="flex items-center gap-0.5 h-9 px-3 border-b border-border bg-card/60 shrink-0 flex-wrap">
+          {/* Headings */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("# ")}>
+                <Heading1 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Heading 1</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("## ")}>
+                <Heading2 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Heading 2</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("### ")}>
+                <Heading3 className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Heading 3</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Inline formatting */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertMarkdown("**", "**", "bold text")}>
+                <Bold className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Bold</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertMarkdown("*", "*", "italic text")}>
+                <Italic className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Italic</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertMarkdown("~~", "~~", "strikethrough")}>
+                <Strikethrough className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Strikethrough</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertMarkdown("`", "`", "code")}>
+                <Code className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Inline code</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Block elements */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("> ")}>
+                <Quote className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Blockquote</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("- ")}>
+                <List className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Bullet list</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertLinePrefix("1. ")}>
+                <ListOrdered className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Numbered list</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Link, table, hr */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertMarkdown("[", "](url)", "link text")}>
+                <Link className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Link</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertBlock("\n| Column 1 | Column 2 | Column 3 |\n|----------|----------|----------|\n| Cell     | Cell     | Cell     |\n")}>
+                <Table className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Table</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => insertBlock("\n---\n")}>
+                <Minus className="w-3.5 h-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Horizontal rule</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 font-mono text-xs" onClick={() => insertBlock("\n```\ncode block\n```\n")}>
+                <Code className="w-3.5 h-3.5 opacity-60" />
+                <span className="text-[9px] -ml-1 -mt-1 font-bold">{"{ }"}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Code block</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
 
       {/* Editor + Preview */}
       <div id="split-container" className="flex-1 flex overflow-hidden">
