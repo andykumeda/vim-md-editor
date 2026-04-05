@@ -1,0 +1,608 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from "@codemirror/view";
+import { EditorState, Compartment } from "@codemirror/state";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { languages } from "@codemirror/language-data";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
+import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
+import { vim, getCM } from "@replit/codemirror-vim";
+import { marked } from "marked";
+import {
+  Sun,
+  Moon,
+  FileDown,
+  Printer,
+  Keyboard,
+  PanelLeftClose,
+  PanelLeftOpen,
+  FileText,
+  FolderOpen,
+  FilePlus,
+  Save,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
+import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+
+// ─── Electron bridge ──────────────────────────────────────────────────────────
+// When running in Electron, window.electronAPI is injected by the preload script.
+declare global {
+  interface Window {
+    electronAPI?: {
+      isElectron: boolean;
+      contentChanged: (content: string, isDirty: boolean) => void;
+      setFilePath: (filePath: string | null) => void;
+      setDirty: (isDirty: boolean) => void;
+      syncVimState: (enabled: boolean) => void;
+      syncDarkState: (dark: boolean) => void;
+      onNewFile: (cb: () => void) => void;
+      onOpenFile: (cb: (data: { content: string; filePath: string; fileName: string }) => void) => void;
+      onFileSaved: (cb: (data: { filePath: string }) => void) => void;
+      onFind: (cb: () => void) => void;
+      onTogglePreview: (cb: () => void) => void;
+      onToggleVim: (cb: (data: { enabled: boolean }) => void) => void;
+      onToggleDark: (cb: (data: { dark: boolean }) => void) => void;
+      onPrint: (cb: () => void) => void;
+      onExportPdf: (cb: () => void) => void;
+      removeAllListeners: (channel: string) => void;
+    };
+    __getEditorContent?: () => string;
+  }
+}
+
+const isElectron = typeof window !== "undefined" && !!window.electronAPI?.isElectron;
+
+const SAMPLE_MD = `# Vim Markdown Editor
+
+A split-pane markdown editor with **Vim keybindings** support.
+
+## Features
+
+- Toggle Vim mode on/off with the toolbar switch
+- Live preview updates as you type
+- Export to PDF or print the rendered output
+- Dark and light themes
+- Resizable split panes
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| \`i\` | Enter insert mode (Vim) |
+| \`Esc\` | Return to normal mode (Vim) |
+| \`Cmd+S\` | Save file |
+| \`dd\` | Delete line |
+| \`yy\` | Yank (copy) line |
+| \`p\` | Paste |
+| \`/\` | Search |
+
+## Code Example
+
+\`\`\`python
+def hello():
+    print("Hello from the Vim editor!")
+    return True
+\`\`\`
+
+## Blockquote
+
+> The best way to predict the future is to invent it.
+> — Alan Kay
+
+---
+
+### Task List
+
+- [x] Build the editor
+- [x] Add Vim keybindings
+- [x] Split-pane preview
+- [x] macOS desktop app
+- [ ] World domination
+`;
+
+marked.setOptions({ breaks: true, gfm: true });
+
+const vimCompartment = new Compartment();
+const themeCompartment = new Compartment();
+
+function createLightTheme() {
+  return EditorView.theme({
+    "&": { backgroundColor: "hsl(210 20% 98%)", color: "hsl(220 20% 12%)" },
+    ".cm-content": { caretColor: "hsl(152 56% 38%)" },
+    ".cm-gutters": { backgroundColor: "transparent", color: "hsl(220 8% 46%)" },
+    ".cm-activeLineGutter": { backgroundColor: "hsl(210 14% 93% / 0.4)" },
+    ".cm-activeLine": { backgroundColor: "hsl(210 14% 93% / 0.4)" },
+  });
+}
+
+function createDarkTheme() {
+  return EditorView.theme({
+    "&": { backgroundColor: "hsl(220 16% 8%)", color: "hsl(210 15% 88%)" },
+    ".cm-content": { caretColor: "hsl(152 48% 48%)" },
+    ".cm-gutters": { backgroundColor: "transparent", color: "hsl(220 8% 55%)" },
+    ".cm-activeLineGutter": { backgroundColor: "hsl(220 10% 20% / 0.4)" },
+    ".cm-activeLine": { backgroundColor: "hsl(220 10% 20% / 0.4)" },
+  });
+}
+
+export default function EditorPage() {
+  const [darkMode, setDarkMode] = useState(() =>
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+  const [vimEnabled, setVimEnabled] = useState(true);
+  const [content, setContent] = useState(SAMPLE_MD);
+  const [showPreview, setShowPreview] = useState(true);
+  const [vimMode, setVimMode] = useState("NORMAL");
+  const [lineInfo, setLineInfo] = useState({ line: 1, col: 1 });
+  const [wordCount, setWordCount] = useState(0);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  const editorRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const isDragging = useRef(false);
+  const [splitPercent, setSplitPercent] = useState(50);
+
+  // Track whether content has been edited since last save
+  const isDirtyRef = useRef(false);
+  const initialContentRef = useRef(SAMPLE_MD);
+
+  // ─── Dark mode ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    window.electronAPI?.syncDarkState(darkMode);
+  }, [darkMode]);
+
+  // ─── Word count ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    setWordCount(content.trim().split(/\s+/).filter(Boolean).length);
+  }, [content]);
+
+  // ─── Expose editor content to Electron main process ─────────────────────────
+  useEffect(() => {
+    window.__getEditorContent = () => viewRef.current?.state.doc.toString() ?? "";
+    return () => { delete window.__getEditorContent; };
+  }, []);
+
+  // ─── Initialize CodeMirror ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!editorRef.current) return;
+
+    const updateListener = EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        const doc = update.state.doc.toString();
+        setContent(doc);
+        const dirty = doc !== initialContentRef.current;
+        if (dirty !== isDirtyRef.current) {
+          isDirtyRef.current = dirty;
+          window.electronAPI?.setDirty(dirty);
+        }
+      }
+      const cursor = update.state.selection.main.head;
+      const line = update.state.doc.lineAt(cursor);
+      setLineInfo({ line: line.number, col: cursor - line.from + 1 });
+    });
+
+    const state = EditorState.create({
+      doc: SAMPLE_MD,
+      extensions: [
+        vimCompartment.of(vim()),
+        themeCompartment.of(darkMode ? createDarkTheme() : createLightTheme()),
+        lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        drawSelection(),
+        bracketMatching(),
+        highlightSelectionMatches(),
+        history(),
+        markdown({ base: markdownLanguage, codeLanguages: languages }),
+        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
+        updateListener,
+        EditorView.lineWrapping,
+      ],
+    });
+
+    const view = new EditorView({ state, parent: editorRef.current });
+    viewRef.current = view;
+
+    const modeInterval = setInterval(() => {
+      const cm = getCM(view);
+      if (cm) {
+        const s = (cm as any).state;
+        if (s?.vim) {
+          const v = s.vim;
+          let mode = "NORMAL";
+          if (v.insertMode) mode = "INSERT";
+          else if (v.visualMode) {
+            mode = "VISUAL";
+            if (v.visualLine) mode = "VISUAL LINE";
+            if (v.visualBlock) mode = "VISUAL BLOCK";
+          } else if (v.mode === "replace") mode = "REPLACE";
+          setVimMode(mode);
+        }
+      }
+    }, 100);
+
+    return () => { clearInterval(modeInterval); view.destroy(); };
+  }, []);
+
+  // ─── Vim toggle ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!viewRef.current) return;
+    viewRef.current.dispatch({
+      effects: vimCompartment.reconfigure(vimEnabled ? vim() : []),
+    });
+    setVimMode(vimEnabled ? "NORMAL" : "");
+    window.electronAPI?.syncVimState(vimEnabled);
+  }, [vimEnabled]);
+
+  // ─── Dark/light theme ───────────────────────────────────────────────────────
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: themeCompartment.reconfigure(darkMode ? createDarkTheme() : createLightTheme()),
+    });
+  }, [darkMode]);
+
+  // ─── Helper: load content into editor ───────────────────────────────────────
+  const loadContent = useCallback((text: string, name: string | null, filePath?: string) => {
+    if (viewRef.current) {
+      viewRef.current.dispatch({
+        changes: { from: 0, to: viewRef.current.state.doc.length, insert: text },
+      });
+    }
+    setContent(text);
+    setFileName(name);
+    initialContentRef.current = text;
+    isDirtyRef.current = false;
+    window.electronAPI?.setDirty(false);
+    if (filePath) window.electronAPI?.setFilePath(filePath);
+    else window.electronAPI?.setFilePath(null);
+  }, []);
+
+  // ─── Electron IPC listeners ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isElectron) return;
+    const api = window.electronAPI!;
+
+    api.onNewFile(() => {
+      loadContent("", null);
+    });
+
+    api.onOpenFile(({ content: text, fileName: name, filePath }) => {
+      loadContent(text, name, filePath);
+    });
+
+    api.onFileSaved(({ filePath }) => {
+      const name = filePath.split("/").pop() ?? filePath;
+      setFileName(name);
+      initialContentRef.current = viewRef.current?.state.doc.toString() ?? "";
+      isDirtyRef.current = false;
+    });
+
+    api.onFind(() => {
+      if (viewRef.current) openSearchPanel(viewRef.current);
+    });
+
+    api.onTogglePreview(() => setShowPreview((p) => !p));
+    api.onToggleVim(({ enabled }) => setVimEnabled(enabled));
+    api.onToggleDark(({ dark }) => setDarkMode(dark));
+    api.onPrint(() => handlePrint());
+    api.onExportPdf(() => handleExportPDF());
+
+    return () => {
+      ["menu-new-file", "menu-open-file", "file-saved", "menu-find",
+       "menu-toggle-preview", "menu-toggle-vim", "menu-toggle-dark",
+       "menu-print", "menu-export-pdf"].forEach((ch) => api.removeAllListeners(ch));
+    };
+  }, [loadContent]);
+
+  // ─── Print ──────────────────────────────────────────────────────────────────
+  const printStyles = `
+    body { font-family: -apple-system, 'Inter', BlinkMacSystemFont, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 24px; color: #1a1a1a; font-size: 14px; line-height: 1.7; }
+    h1 { font-size: 24px; font-weight: 700; margin: 0 0 12px; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; }
+    h2 { font-size: 20px; font-weight: 600; margin: 20px 0 8px; border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; }
+    h3 { font-size: 16px; font-weight: 600; margin: 16px 0 6px; }
+    p { margin: 0 0 10px; }
+    ul, ol { margin: 0 0 10px; padding-left: 24px; }
+    li { margin: 2px 0; }
+    code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
+    pre { background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; overflow-x: auto; margin: 0 0 12px; }
+    pre code { background: transparent; padding: 0; font-size: 0.85em; }
+    blockquote { margin: 0 0 12px; padding: 8px 16px; border-left: 3px solid #333; background: #f9f9f9; color: #555; }
+    table { border-collapse: collapse; width: 100%; margin: 0 0 12px; }
+    th, td { border: 1px solid #ddd; padding: 6px 12px; text-align: left; }
+    th { font-weight: 600; background: #f5f5f5; }
+    hr { margin: 20px 0; border: none; border-top: 1px solid #e0e0e0; }
+    a { color: #2563eb; }
+    img { max-width: 100%; }
+  `;
+
+  const getRenderedHTML = useCallback(() => marked.parse(content) as string, [content]);
+
+  const handlePrint = useCallback(() => {
+    const html = getRenderedHTML();
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print</title><style>${printStyles}</style></head><body>${html}</body></html>`);
+    w.document.close();
+    w.onload = () => w.print();
+  }, [getRenderedHTML]);
+
+  const handleExportPDF = useCallback(() => {
+    const html = getRenderedHTML();
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const hint = `<div style="text-align:center;padding:16px;background:#fffbe6;border:1px solid #f0d860;border-radius:8px;margin-bottom:20px;font-size:13px;color:#665a00;">Use <strong>Save as PDF</strong> in the print dialog (Cmd+P) to export.</div>`;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Export PDF</title><style>@page{margin:1in 0.75in;size:letter;}${printStyles}</style></head><body>${hint}${html}</body></html>`);
+    w.document.close();
+    w.onload = () => w.print();
+  }, [getRenderedHTML]);
+
+  // ─── Browser file ops (non-Electron fallback) ────────────────────────────────
+  const handleOpenFile = useCallback(() => {
+    if (isElectron) {
+      // Trigger native open dialog via IPC (same as ⌘O menu)
+      (window as any).electronAPI?.openFileDialog?.();
+      return;
+    }
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      loadContent(text, file.name);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, [loadContent]);
+
+  const handleNewFile = useCallback(() => {
+    if (isElectron) {
+      (window as any).electronAPI?.newFileAction?.();
+      return;
+    }
+    loadContent("", null);
+  }, [loadContent]);
+
+  const handleSaveFile = useCallback(() => {
+    if (isElectron) {
+      (window as any).electronAPI?.saveFileAction?.();
+      return;
+    }
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName || "untitled.md";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [content, fileName]);
+
+  // ─── Drag-to-resize ─────────────────────────────────────────────────────────
+  const handleMouseDown = useCallback(() => {
+    isDragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const container = document.getElementById("split-container");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      setSplitPercent(Math.max(20, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100)));
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
+
+  // ─── Top padding for macOS traffic lights ───────────────────────────────────
+  // hiddenInset titlebar makes the toolbar sit under the traffic light area
+  const toolbarStyle = isElectron
+    ? { paddingLeft: "80px" } // macOS traffic lights are ~72px wide
+    : {};
+
+  return (
+    <div className="flex flex-col h-screen bg-background text-foreground no-print">
+      {/* Toolbar */}
+      <header
+        className="flex items-center justify-between h-11 px-3 border-b border-border bg-card shrink-0"
+        style={{ ...toolbarStyle, WebkitAppRegion: "drag" } as React.CSSProperties}
+        data-testid="toolbar"
+      >
+        {/* Left: Document Actions (Persistence + Output) */}
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          <div className="flex items-center gap-1.5 mr-2">
+            <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-label="VimDown">
+              <rect x="2" y="4" width="28" height="24" rx="3" stroke="currentColor" strokeWidth="2" fill="none" />
+              <path d="M8 12l4 4-4 4" stroke="hsl(152, 56%, 38%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <line x1="15" y1="20" x2="24" y2="20" stroke="hsl(152, 56%, 38%)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <span className="text-sm font-semibold tracking-tight">VimDown</span>
+          </div>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Group 1: Persistence */}
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNewFile} data-testid="btn-new">
+                  <FilePlus className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New file {isElectron ? "(⌘N)" : ""}</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleOpenFile} data-testid="btn-open">
+                  <FolderOpen className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open file {isElectron ? "(⌘O)" : ""}</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSaveFile} data-testid="btn-save">
+                  <Save className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save {isElectron ? "(⌘S)" : "as .md"}</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Group 2: Output */}
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePrint} data-testid="btn-print">
+                  <Printer className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Print {isElectron ? "(⌘P)" : ""}</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleExportPDF} data-testid="btn-export-pdf">
+                  <FileDown className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export PDF {isElectron ? "(⌘⇧P)" : ""}</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Right: Workspace & View Actions */}
+        <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+          {/* Group 3: Editor Mode */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1.5 px-2 cursor-default">
+                <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground font-medium">Vim</span>
+                <Switch
+                  checked={vimEnabled}
+                  onCheckedChange={setVimEnabled}
+                  className="scale-75 origin-left"
+                  data-testid="toggle-vim"
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Toggle Vim keybindings {isElectron ? "(⌘⌥V)" : ""}</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Group 4: Layout */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowPreview(!showPreview)} data-testid="toggle-preview">
+                {showPreview ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{showPreview ? "Hide preview" : "Show preview"} {isElectron ? "(⌘\\)" : ""}</TooltipContent>
+          </Tooltip>
+
+          <div className="w-px h-5 bg-border mx-1" />
+
+          {/* Group 5: Theme */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDarkMode(!darkMode)} data-testid="toggle-theme">
+                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{darkMode ? "Light mode" : "Dark mode"} {isElectron ? "(⌘⌥D)" : ""}</TooltipContent>
+          </Tooltip>
+        </div>
+      </header>
+
+      {/* Editor + Preview */}
+      <div id="split-container" className="flex-1 flex overflow-hidden">
+        <div className="h-full overflow-hidden" style={{ width: showPreview ? `${splitPercent}%` : "100%" }}>
+          <div ref={editorRef} className="h-full" data-testid="editor-pane" />
+        </div>
+
+        {showPreview && (
+          <div
+            className="w-1 cursor-col-resize bg-border hover:bg-primary/40 transition-colors shrink-0"
+            onMouseDown={handleMouseDown}
+            data-testid="resize-handle"
+          />
+        )}
+
+        {showPreview && (
+          <div className="h-full overflow-auto bg-background" style={{ width: `${100 - splitPercent}%` }}>
+            <div className="flex items-center h-8 px-4 border-b border-border bg-card/50">
+              <FileText className="w-3.5 h-3.5 text-muted-foreground mr-1.5" />
+              <span className="text-xs text-muted-foreground font-medium">Preview</span>
+            </div>
+            <div
+              ref={previewRef}
+              className="markdown-preview p-6 max-w-none"
+              dangerouslySetInnerHTML={{ __html: getRenderedHTML() }}
+              data-testid="preview-pane"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      <footer className="flex items-center justify-between h-7 px-3 border-t border-border bg-card text-xs text-muted-foreground shrink-0" data-testid="statusbar">
+        <div className="flex items-center gap-3">
+          {vimEnabled && vimMode && (
+            <span className="font-mono font-semibold text-primary" data-testid="vim-mode">-- {vimMode} --</span>
+          )}
+          {!vimEnabled && <span className="font-mono text-muted-foreground/60">INSERT</span>}
+          <span className="font-mono">Ln {lineInfo.line}, Col {lineInfo.col}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {fileName && <span className="font-mono truncate max-w-[220px]" title={fileName}>{fileName}</span>}
+          <span>{wordCount} words</span>
+          <span>Markdown</span>
+          <span>UTF-8</span>
+        </div>
+      </footer>
+
+      {/* Hidden browser file input (non-Electron) */}
+      {!isElectron && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.txt,.markdown,.mdown,.mkd,.mkdn,.mdwn,.mdtxt,.mdtext,.text"
+          className="hidden"
+          onChange={handleFileChange}
+          data-testid="file-input"
+        />
+      )}
+
+      <div className="hidden"><PerplexityAttribution /></div>
+    </div>
+  );
+}

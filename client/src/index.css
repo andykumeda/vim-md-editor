@@ -1,0 +1,398 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Editor-focused dark palette — cool slate with green accent */
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+  --background: 210 20% 98%;
+  --foreground: 220 20% 12%;
+  --border: 220 13% 88%;
+  --card: 210 18% 96%;
+  --card-foreground: 220 20% 12%;
+  --card-border: 220 13% 90%;
+  --sidebar: 210 18% 95%;
+  --sidebar-foreground: 220 20% 12%;
+  --sidebar-border: 220 13% 88%;
+  --sidebar-primary: 152 56% 38%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 14% 89%;
+  --sidebar-accent-foreground: 220 20% 12%;
+  --sidebar-ring: 152 56% 38%;
+  --popover: 210 18% 96%;
+  --popover-foreground: 220 20% 12%;
+  --popover-border: 220 13% 88%;
+  --primary: 152 56% 38%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 14% 91%;
+  --secondary-foreground: 220 20% 12%;
+  --muted: 210 14% 93%;
+  --muted-foreground: 220 8% 46%;
+  --accent: 152 20% 92%;
+  --accent-foreground: 220 20% 12%;
+  --destructive: 0 72% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 13% 78%;
+  --ring: 152 56% 38%;
+  --chart-1: 152 56% 38%;
+  --chart-2: 200 60% 45%;
+  --chart-3: 262 50% 48%;
+  --chart-4: 43 74% 49%;
+  --chart-5: 27 87% 55%;
+  --font-sans: 'JetBrains Mono', 'Geist', 'Inter', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius: .5rem;
+  --shadow-2xs: 0px 1px 2px hsl(220 20% 12% / 0.04);
+  --shadow-xs: 0px 1px 3px hsl(220 20% 12% / 0.06);
+  --shadow-sm: 0px 2px 4px hsl(220 20% 12% / 0.06);
+  --shadow: 0px 2px 6px hsl(220 20% 12% / 0.08);
+  --shadow-md: 0px 4px 8px hsl(220 20% 12% / 0.08);
+  --shadow-lg: 0px 8px 16px hsl(220 20% 12% / 0.10);
+  --shadow-xl: 0px 12px 24px hsl(220 20% 12% / 0.12);
+  --shadow-2xl: 0px 16px 32px hsl(220 20% 12% / 0.14);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
+}
+
+.dark {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+  --background: 220 16% 8%;
+  --foreground: 210 15% 88%;
+  --border: 220 10% 18%;
+  --card: 220 14% 11%;
+  --card-foreground: 210 15% 88%;
+  --card-border: 220 10% 15%;
+  --sidebar: 220 14% 10%;
+  --sidebar-foreground: 210 15% 88%;
+  --sidebar-border: 220 10% 16%;
+  --sidebar-primary: 152 48% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 10% 18%;
+  --sidebar-accent-foreground: 210 15% 88%;
+  --sidebar-ring: 152 48% 48%;
+  --popover: 220 14% 12%;
+  --popover-foreground: 210 15% 88%;
+  --popover-border: 220 10% 18%;
+  --primary: 152 48% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 10% 18%;
+  --secondary-foreground: 210 15% 88%;
+  --muted: 220 10% 20%;
+  --muted-foreground: 220 8% 55%;
+  --accent: 152 15% 18%;
+  --accent-foreground: 210 15% 88%;
+  --destructive: 0 72% 50%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 220 10% 28%;
+  --ring: 152 48% 48%;
+  --chart-1: 152 48% 55%;
+  --chart-2: 200 60% 60%;
+  --chart-3: 262 50% 65%;
+  --chart-4: 43 74% 65%;
+  --chart-5: 27 87% 65%;
+  --shadow-2xs: 0px 1px 2px hsl(0 0% 0% / 0.2);
+  --shadow-xs: 0px 1px 3px hsl(0 0% 0% / 0.25);
+  --shadow-sm: 0px 2px 4px hsl(0 0% 0% / 0.25);
+  --shadow: 0px 2px 6px hsl(0 0% 0% / 0.3);
+  --shadow-md: 0px 4px 8px hsl(0 0% 0% / 0.3);
+  --shadow-lg: 0px 8px 16px hsl(0 0% 0% / 0.35);
+  --shadow-xl: 0px 12px 24px hsl(0 0% 0% / 0.4);
+  --shadow-2xl: 0px 16px 32px hsl(0 0% 0% / 0.45);
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+/* CodeMirror theme overrides */
+.cm-editor {
+  height: 100% !important;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.cm-editor .cm-scroller {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  line-height: 1.6;
+}
+
+.cm-editor .cm-content {
+  padding: 16px 0;
+}
+
+.cm-editor .cm-gutters {
+  background: transparent;
+  border-right: 1px solid hsl(var(--border));
+}
+
+.cm-editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 12px 0 8px;
+  min-width: 40px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+
+.cm-editor .cm-activeLine {
+  background: hsl(var(--muted) / 0.3);
+}
+
+.cm-editor .cm-activeLineGutter {
+  background: hsl(var(--muted) / 0.3);
+}
+
+.cm-editor .cm-selectionBackground {
+  background: hsl(var(--primary) / 0.2) !important;
+}
+
+.cm-editor.cm-focused .cm-selectionBackground {
+  background: hsl(var(--primary) / 0.25) !important;
+}
+
+.cm-editor .cm-cursor {
+  border-left: 2px solid hsl(var(--primary));
+}
+
+/* Vim fat cursor in normal mode */
+.cm-editor .cm-fat-cursor .cm-cursor {
+  background: hsl(var(--primary) / 0.5);
+  border: none;
+}
+
+.cm-editor .cm-panels {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.cm-editor .cm-panels input {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.cm-editor .cm-panels button {
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+/* Vim command-line bar */
+.cm-vim-panel {
+  padding: 4px 8px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 13px !important;
+}
+
+/* Markdown preview styles */
+.markdown-preview {
+  font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: hsl(var(--foreground));
+}
+
+.markdown-preview h1 {
+  font-size: 1.75em;
+  font-weight: 700;
+  margin: 0 0 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid hsl(var(--border));
+  line-height: 1.2;
+}
+
+.markdown-preview h2 {
+  font-size: 1.4em;
+  font-weight: 600;
+  margin: 1.2em 0 0.5em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid hsl(var(--border));
+  line-height: 1.25;
+}
+
+.markdown-preview h3 {
+  font-size: 1.2em;
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+
+.markdown-preview h4 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.8em 0 0.3em;
+}
+
+.markdown-preview p {
+  margin: 0 0 0.8em;
+}
+
+.markdown-preview ul, .markdown-preview ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.5em;
+}
+
+.markdown-preview li {
+  margin: 0.2em 0;
+}
+
+.markdown-preview li > ul,
+.markdown-preview li > ol {
+  margin: 0.1em 0;
+}
+
+.markdown-preview code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.88em;
+  background: hsl(var(--muted));
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+
+.markdown-preview pre {
+  margin: 0 0 1em;
+  padding: 14px 16px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.markdown-preview blockquote {
+  margin: 0 0 1em;
+  padding: 0.5em 1em;
+  border-left: 3px solid hsl(var(--primary));
+  background: hsl(var(--muted) / 0.3);
+  color: hsl(var(--muted-foreground));
+}
+
+.markdown-preview blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-preview a:hover {
+  opacity: 0.8;
+}
+
+.markdown-preview hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.markdown-preview table {
+  width: 100%;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid hsl(var(--border));
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-preview th {
+  font-weight: 600;
+  background: hsl(var(--muted) / 0.5);
+}
+
+.markdown-preview img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.markdown-preview strong {
+  font-weight: 600;
+}
+
+.markdown-preview em {
+  font-style: italic;
+}
+
+.markdown-preview input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+
+/* Print-specific styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .markdown-preview {
+    padding: 0 !important;
+    font-size: 12pt;
+    color: black;
+  }
+  .markdown-preview h1 {
+    font-size: 20pt;
+  }
+  .markdown-preview h2 {
+    font-size: 16pt;
+  }
+  .markdown-preview h3 {
+    font-size: 14pt;
+  }
+  .markdown-preview pre {
+    border: 1px solid #ddd;
+    background: #f5f5f5 !important;
+  }
+  .markdown-preview code {
+    background: #f0f0f0 !important;
+  }
+  .markdown-preview blockquote {
+    border-left-color: #333;
+    background: #f9f9f9 !important;
+    color: #333;
+  }
+}
