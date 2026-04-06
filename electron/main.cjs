@@ -58,6 +58,10 @@ function createWindow() {
         mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
         updateWindowTitle();
         app.addRecentDocument(filePath);
+        // Bring window to front — Finder holds focus during a cold launch
+        app.focus({ steal: true });
+        mainWindow.show();
+        mainWindow.focus();
       } catch (e) {
         dialog.showErrorBox('Error opening file', String(e));
       }
@@ -423,7 +427,7 @@ ipcMain.on('sync-dark-state', (event, { dark }) => {
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
   if (mainWindow && mainWindow.webContents) {
-    // App already running — send immediately
+    // App running with a window open — load file and bring to front
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       mainWindow._filePath = filePath;
@@ -431,17 +435,21 @@ app.on('open-file', (event, filePath) => {
       mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
       updateWindowTitle();
       app.addRecentDocument(filePath);
-      
-      // Bring window to front (steal focus from Finder)
+      // app.focus must come before window focus to reliably steal from Finder
+      app.focus({ steal: true });
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
-      app.focus({ steal: true });
     } catch (e) {
       dialog.showErrorBox('Error opening file', String(e));
     }
+  } else if (app.isReady()) {
+    // Window was closed but app is still alive in the background (macOS).
+    // whenReady() won't fire again — create a new window manually.
+    pendingFileToOpen = filePath;
+    createWindow();
   } else {
-    // App not yet ready — stash for after window loads
+    // App hasn't finished launching yet — stash for did-finish-load
     pendingFileToOpen = filePath;
   }
 });
