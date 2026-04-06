@@ -21,7 +21,7 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 - Unsaved-changes dot in the title bar
 - Represented filename (right-click title to reveal in Finder)
 - Recent Documents in the Dock menu
-- File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly
+- File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
 
 ### Desktop keyboard shortcuts
 
