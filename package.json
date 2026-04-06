@@ -9,6 +9,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
+    "build:web": "vite build",
     "build": "tsx script/build.ts && npm run electron:build",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",

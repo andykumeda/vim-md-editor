@@ -65,12 +65,17 @@ declare global {
       onPrint: (cb: () => void) => void;
       onExportPdf: (cb: () => void) => void;
       removeAllListeners: (channel: string) => void;
+      openFileDialog: () => void;
+      newFileAction: () => void;
+      saveFileAction: () => void;
     };
     __getEditorContent?: () => string;
   }
 }
 
 const isElectron = typeof window !== "undefined" && !!window.electronAPI?.isElectron;
+const hasFSA = !isElectron && typeof window !== "undefined" && "showOpenFilePicker" in window;
+const webModKey = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl";
 
 const SAMPLE_MD = `# Vim Markdown Editor
 
@@ -122,6 +127,11 @@ def hello():
 
 marked.setOptions({ breaks: true, gfm: true });
 
+function getInitialDoc(): string {
+  if (isElectron || typeof window === "undefined") return SAMPLE_MD;
+  return localStorage.getItem("vimdown-content") ?? SAMPLE_MD;
+}
+
 const vimCompartment = new Compartment();
 const themeCompartment = new Compartment();
 
@@ -150,7 +160,7 @@ export default function EditorPage() {
     window.matchMedia("(prefers-color-scheme: dark)").matches
   );
   const [vimEnabled, setVimEnabled] = useState(true);
-  const [content, setContent] = useState(SAMPLE_MD);
+  const [content, setContent] = useState(getInitialDoc);
   const [showPreview, setShowPreview] = useState(true);
   const [vimMode, setVimMode] = useState("NORMAL");
   const [lineInfo, setLineInfo] = useState({ line: 1, col: 1 });
@@ -161,12 +171,13 @@ export default function EditorPage() {
   const viewRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const isDragging = useRef(false);
   const [splitPercent, setSplitPercent] = useState(50);
 
   // Track whether content has been edited since last save
   const isDirtyRef = useRef(false);
-  const initialContentRef = useRef(SAMPLE_MD);
+  const initialContentRef = useRef(getInitialDoc());
 
   // ─── Dark mode ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -205,7 +216,7 @@ export default function EditorPage() {
     });
 
     const state = EditorState.create({
-      doc: SAMPLE_MD,
+      doc: initialContentRef.current,
       extensions: [
         vimCompartment.of(vim()),
         themeCompartment.of(darkMode ? createDarkTheme() : createLightTheme()),
@@ -363,51 +374,86 @@ export default function EditorPage() {
     w.onload = () => w.print();
   }, [getRenderedHTML]);
 
-  // ─── Browser file ops (non-Electron fallback) ────────────────────────────────
-  const handleOpenFile = useCallback(() => {
+  // ─── Browser file ops (non-Electron) ────────────────────────────────────────
+  const downloadFile = useCallback((text: string, name: string) => {
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleOpenFile = useCallback(async () => {
     if (isElectron) {
-      // Trigger native open dialog via IPC (same as ⌘O menu)
-      (window as any).electronAPI?.openFileDialog?.();
+      window.electronAPI?.openFileDialog?.();
       return;
     }
-    fileInputRef.current?.click();
-  }, []);
+    if (hasFSA) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [{ description: "Markdown", accept: { "text/markdown": [".md", ".markdown", ".txt"] } }],
+          multiple: false,
+        });
+        fileHandleRef.current = handle;
+        const file = await handle.getFile();
+        loadContent(await file.text(), file.name);
+      } catch { /* cancelled */ }
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [loadContent]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    fileHandleRef.current = null;
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result as string;
-      loadContent(text, file.name);
-    };
+    reader.onload = (evt) => loadContent(evt.target?.result as string, file.name);
     reader.readAsText(file);
     e.target.value = "";
   }, [loadContent]);
 
   const handleNewFile = useCallback(() => {
     if (isElectron) {
-      (window as any).electronAPI?.newFileAction?.();
+      window.electronAPI?.newFileAction?.();
       return;
     }
+    fileHandleRef.current = null;
     loadContent("", null);
   }, [loadContent]);
 
-  const handleSaveFile = useCallback(() => {
+  const handleSaveFile = useCallback(async () => {
     if (isElectron) {
-      (window as any).electronAPI?.saveFileAction?.();
+      window.electronAPI?.saveFileAction?.();
       return;
     }
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName || "untitled.md";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [content, fileName]);
+    const text = viewRef.current?.state.doc.toString() ?? content;
+    if (hasFSA) {
+      try {
+        let handle = fileHandleRef.current;
+        if (!handle) {
+          handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName ?? "untitled.md",
+            types: [{ description: "Markdown", accept: { "text/markdown": [".md"] } }],
+          });
+          fileHandleRef.current = handle;
+          setFileName((handle as FileSystemFileHandle).name);
+        }
+        const writable = await (handle as any).createWritable();
+        await writable.write(text);
+        await writable.close();
+        initialContentRef.current = text;
+        isDirtyRef.current = false;
+        window.electronAPI?.setDirty(false);
+      } catch { /* cancelled — fall back to download */ }
+    } else {
+      downloadFile(text, fileName ?? "untitled.md");
+    }
+  }, [content, fileName, downloadFile]);
 
   // ─── Markdown formatting helpers (non-Vim mode) ──────────────────────────────
   const insertMarkdown = useCallback((before: string, after = "", placeholder = "text") => {
@@ -471,6 +517,29 @@ export default function EditorPage() {
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
+  // ─── Web keyboard shortcuts ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (isElectron) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === "s") { e.preventDefault(); handleSaveFile(); }
+      else if (e.key === "o") { e.preventDefault(); handleOpenFile(); }
+      else if (e.key === "n") { e.preventDefault(); handleNewFile(); }
+      else if (e.key === "p" && !e.shiftKey) { e.preventDefault(); handlePrint(); }
+      else if (e.key === "p" && e.shiftKey) { e.preventDefault(); handleExportPDF(); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleSaveFile, handleOpenFile, handleNewFile, handlePrint, handleExportPDF]);
+
+  // ─── localStorage autosave ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (isElectron) return;
+    const timer = setTimeout(() => localStorage.setItem("vimdown-content", content), 800);
+    return () => clearTimeout(timer);
+  }, [content]);
+
   // ─── Top padding for macOS traffic lights ───────────────────────────────────
   // hiddenInset titlebar makes the toolbar sit under the traffic light area
   const toolbarStyle = isElectron
@@ -506,7 +575,7 @@ export default function EditorPage() {
                   <FilePlus className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>New file {isElectron ? "(⌘N)" : ""}</TooltipContent>
+              <TooltipContent>New file ({isElectron ? "⌘N" : `${webModKey}+N`})</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -515,7 +584,7 @@ export default function EditorPage() {
                   <FolderOpen className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open file {isElectron ? "(⌘O)" : ""}</TooltipContent>
+              <TooltipContent>Open file ({isElectron ? "⌘O" : `${webModKey}+O`})</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -524,7 +593,7 @@ export default function EditorPage() {
                   <Save className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Save {isElectron ? "(⌘S)" : "as .md"}</TooltipContent>
+              <TooltipContent>Save ({isElectron ? "⌘S" : `${webModKey}+S`})</TooltipContent>
             </Tooltip>
           </div>
 
@@ -538,7 +607,7 @@ export default function EditorPage() {
                   <Printer className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Print {isElectron ? "(⌘P)" : ""}</TooltipContent>
+              <TooltipContent>Print ({isElectron ? "⌘P" : `${webModKey}+P`})</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -547,7 +616,7 @@ export default function EditorPage() {
                   <FileDown className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Export PDF {isElectron ? "(⌘⇧P)" : ""}</TooltipContent>
+              <TooltipContent>Export PDF ({isElectron ? "⌘⇧P" : `${webModKey}+⇧+P`})</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -568,7 +637,7 @@ export default function EditorPage() {
                 />
               </div>
             </TooltipTrigger>
-            <TooltipContent>Toggle Vim keybindings {isElectron ? "(⌘⌥V)" : ""}</TooltipContent>
+            <TooltipContent>Toggle Vim keybindings{isElectron ? " (⌘⌥V)" : ""}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-5 bg-border mx-1" />
@@ -580,7 +649,7 @@ export default function EditorPage() {
                 {showPreview ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{showPreview ? "Hide preview" : "Show preview"} {isElectron ? "(⌘\\)" : ""}</TooltipContent>
+            <TooltipContent>{showPreview ? "Hide preview" : "Show preview"}{isElectron ? " (⌘\\)" : ""}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-5 bg-border mx-1" />
@@ -592,7 +661,7 @@ export default function EditorPage() {
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{darkMode ? "Light mode" : "Dark mode"} {isElectron ? "(⌘⌥D)" : ""}</TooltipContent>
+            <TooltipContent>{darkMode ? "Light mode" : "Dark mode"}{isElectron ? " (⌘⌥D)" : ""}</TooltipContent>
           </Tooltip>
         </div>
       </header>
