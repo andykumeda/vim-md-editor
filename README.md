@@ -10,6 +10,7 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 - **Dark / Light mode** — follows system preference on load; toggle any time
 - **Print & PDF export** — opens a formatted print window; use "Save as PDF" in the print dialog
 - **XSS-safe preview** — HTML output is sanitized with DOMPurify before rendering
+- **Native context menu** — right-click in the editor shows Cut / Copy / Paste / Select All (desktop only)
 
 ---
 

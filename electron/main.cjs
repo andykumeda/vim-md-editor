@@ -46,6 +46,25 @@ function createWindow() {
   mainWindow._filePath = null;
   mainWindow._isDirty = false;
 
+  // ─── Context menu (right-click) ───────────────────────────────────────────
+  mainWindow.webContents.on('context-menu', (_e, params) => {
+    const items = [];
+    if (params.selectionText) {
+      items.push({ role: 'copy' });
+      if (params.isEditable) {
+        items.push({ role: 'cut' });
+        items.push({ type: 'separator' });
+      }
+    }
+    if (params.isEditable) {
+      items.push({ role: 'paste' });
+      items.push({ role: 'selectAll' });
+    }
+    if (items.length > 0) {
+      Menu.buildFromTemplate(items).popup({ window: mainWindow });
+    }
+  });
+
   // Load any file that was double-clicked before the window existed
   mainWindow.webContents.on('did-finish-load', () => {
     if (pendingFileToOpen) {
