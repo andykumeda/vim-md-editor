@@ -558,9 +558,16 @@ export default function EditorPage() {
         <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
           <div className="flex items-center gap-1.5 mr-2">
             <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-label="VimDown">
-              <rect x="2" y="4" width="28" height="24" rx="3" stroke="currentColor" strokeWidth="2" fill="none" />
-              <path d="M8 12l4 4-4 4" stroke="hsl(152, 56%, 38%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <line x1="15" y1="20" x2="24" y2="20" stroke="hsl(152, 56%, 38%)" strokeWidth="2" strokeLinecap="round" />
+              {/* Document body */}
+              <rect x="5" y="2" width="18" height="24" rx="2.5" fill="#6366f1" />
+              {/* Folded corner */}
+              <path d="M18 2 L23 7 L18 7 Z" fill="#4f46e5" />
+              {/* Heading line (amber) */}
+              <rect x="8" y="11" width="5" height="2" rx="1" fill="#fb923c" />
+              <rect x="14.5" y="11" width="5.5" height="2" rx="1" fill="#e0e7ff" />
+              {/* Body lines */}
+              <rect x="8" y="15" width="11" height="1.5" rx="0.75" fill="#c7d2fe" />
+              <rect x="8" y="18.5" width="8" height="1.5" rx="0.75" fill="#c7d2fe" />
             </svg>
             <span className="text-sm font-semibold tracking-tight">VimDown</span>
           </div>
