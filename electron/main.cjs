@@ -500,15 +500,52 @@ function showMarkitdownInstallDialog(win) {
   });
 }
 
+function isBrokenPythonEnvError(msg) {
+  if (!msg) return false;
+  return /ModuleNotFoundError|ImportError|numpy\.core|onnxruntime|libomp|incompatible/i.test(msg);
+}
+
+function showBrokenPythonDialog(win, stderr) {
+  const target = win || focusedWin();
+  const detail = [
+    "markitdown's Python environment is broken (a system or Homebrew Python upgrade",
+    "left a dependency built against an older numpy/onnxruntime).",
+    '',
+    'Recommended fix — install markitdown into an isolated venv with pipx:',
+    '',
+    '  brew install pipx',
+    '  pipx install --force "markitdown[all]"',
+    '',
+    'Then quit and relaunch VimDown.',
+    '',
+    '── Original error ──',
+    stderr.trim().slice(-1200),
+  ].join('\n');
+  dialog.showMessageBox(target, {
+    type: 'error',
+    title: 'markitdown failed to start',
+    message: 'Conversion failed because markitdown could not load.',
+    detail,
+    buttons: ['Open install page', 'OK'],
+    defaultId: 1,
+    cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) shell.openExternal('https://github.com/microsoft/markitdown#installation');
+  });
+}
+
 async function openConverted(filePath) {
   let content;
   try {
     content = await convertWithMarkitdown(filePath);
   } catch (e) {
-    if (e && e.message === 'NOT_INSTALLED') {
+    const msg = e && e.message ? String(e.message) : String(e);
+    if (msg === 'NOT_INSTALLED') {
       showMarkitdownInstallDialog(null);
+    } else if (isBrokenPythonEnvError(msg)) {
+      showBrokenPythonDialog(null, msg);
     } else {
-      dialog.showErrorBox('Conversion failed', String(e && e.message ? e.message : e));
+      dialog.showErrorBox('Conversion failed', msg);
     }
     return;
   }

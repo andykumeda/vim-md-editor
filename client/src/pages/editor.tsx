@@ -17,8 +17,7 @@ import {
   Keyboard,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
+  Pencil,
   FileText,
   FolderOpen,
   FilePlus,
@@ -677,21 +676,6 @@ export default function EditorPage() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                onClick={() => setShowEditor((e) => !e)}
-                data-testid="toggle-editor"
-              >
-                {showEditor ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{showEditor ? "Hide editor" : "Show editor"}{isElectron ? " (⌘E)" : ""}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
                 onClick={() => setShowPreview((p) => !p)}
                 data-testid="toggle-preview"
               >
@@ -872,9 +856,24 @@ export default function EditorPage() {
             className="h-full overflow-auto bg-background"
             style={{ width: showEditor ? `${100 - splitPercent}%` : "100%" }}
           >
-            <div className="flex items-center h-8 px-4 border-b border-border bg-card/50">
-              <FileText className="w-3.5 h-3.5 text-muted-foreground mr-1.5" />
-              <span className="text-xs text-muted-foreground font-medium">Preview</span>
+            <div className="flex items-center justify-between h-8 px-4 border-b border-border bg-card/50">
+              <div className="flex items-center">
+                <FileText className="w-3.5 h-3.5 text-muted-foreground mr-1.5" />
+                <span className="text-xs text-muted-foreground font-medium">Preview</span>
+              </div>
+              {!showEditor && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs gap-1"
+                  onClick={() => setShowEditor(true)}
+                  data-testid="enter-edit"
+                  title={isElectron ? "Edit (⌘E)" : "Edit"}
+                >
+                  <Pencil className="w-3 h-3" />
+                  Edit
+                </Button>
+              )}
             </div>
             <div
               ref={previewRef}
