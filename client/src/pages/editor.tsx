@@ -287,6 +287,7 @@ export default function EditorPage() {
     setFileName(name);
     initialContentRef.current = text;
     isDirtyRef.current = false;
+    fileHandleRef.current = null;
     window.electronAPI?.setDirty(false);
     if (filePath) window.electronAPI?.setFilePath(filePath);
     else window.electronAPI?.setFilePath(null);
@@ -351,7 +352,7 @@ export default function EditorPage() {
   `;
 
   const getRenderedHTML = useCallback(
-    () => DOMPurify.sanitize(marked.parse(content) as string),
+    () => DOMPurify.sanitize(marked.parse(content, { async: false }) as string),
     [content]
   );
 
@@ -536,7 +537,15 @@ export default function EditorPage() {
   // ─── localStorage autosave ───────────────────────────────────────────────────
   useEffect(() => {
     if (isElectron) return;
-    const timer = setTimeout(() => localStorage.setItem("vimdown-content", content), 800);
+    const timer = setTimeout(() => {
+      // Skip docs over 500KB to avoid quota errors and slow writes.
+      if (content.length > 500_000) return;
+      try {
+        localStorage.setItem("vimdown-content", content);
+      } catch {
+        // Quota exceeded or storage disabled — silently skip.
+      }
+    }, 800);
     return () => clearTimeout(timer);
   }, [content]);
 

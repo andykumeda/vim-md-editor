@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -45,6 +45,19 @@ function createWindow() {
   // Track current file state
   mainWindow._filePath = null;
   mainWindow._isDirty = false;
+
+  // ─── Navigation guards ────────────────────────────────────────────────────
+  // External links open in the default browser; renderer cannot navigate away.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (url !== mainWindow.webContents.getURL()) {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
+  });
 
   // ─── Context menu (right-click) ───────────────────────────────────────────
   mainWindow.webContents.on('context-menu', (_e, params) => {
@@ -178,7 +191,13 @@ async function handleOpenFile() {
   if (canceled || !filePaths.length) return;
 
   const filePath = filePaths[0];
-  const content = fs.readFileSync(filePath, 'utf-8');
+  let content;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch (e) {
+    dialog.showErrorBox('Error opening file', String(e));
+    return;
+  }
   mainWindow._filePath = filePath;
   mainWindow._isDirty = false;
   mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
@@ -191,8 +210,13 @@ async function handleSaveFile(closeAfter = false) {
   if (!mainWindow) return;
   if (mainWindow._filePath) {
     // Save in place
-    const content = await ipcMain.handle ? await mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()') : '';
-    fs.writeFileSync(mainWindow._filePath, content, 'utf-8');
+    const content = await mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+    try {
+      fs.writeFileSync(mainWindow._filePath, content || '', 'utf-8');
+    } catch (e) {
+      dialog.showErrorBox('Error saving file', String(e));
+      return;
+    }
     mainWindow._isDirty = false;
     updateWindowTitle();
     mainWindow.webContents.send('file-saved', { filePath: mainWindow._filePath });
@@ -215,7 +239,12 @@ async function handleSaveAsFile(closeAfter = false) {
   if (canceled || !filePath) return;
 
   const content = await mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
-  fs.writeFileSync(filePath, content || '', 'utf-8');
+  try {
+    fs.writeFileSync(filePath, content || '', 'utf-8');
+  } catch (e) {
+    dialog.showErrorBox('Error saving file', String(e));
+    return;
+  }
   mainWindow._filePath = filePath;
   mainWindow._isDirty = false;
   updateWindowTitle();
@@ -223,23 +252,6 @@ async function handleSaveAsFile(closeAfter = false) {
   app.addRecentDocument(filePath);
   if (closeAfter) mainWindow.close();
 }
-
-// ─── IPC handlers (called from renderer via menu) ─────────────────────────────
-ipcMain.handle('dialog-open-file', async () => {
-  await handleOpenFile();
-});
-
-ipcMain.handle('dialog-save-file', async () => {
-  await handleSaveFile(false);
-});
-
-ipcMain.handle('dialog-save-as-file', async () => {
-  await handleSaveAsFile(false);
-});
-
-ipcMain.handle('dialog-new-file', async () => {
-  await handleNewFile();
-});
 
 // Called by renderer to set file path after drag-drop or other opens
 ipcMain.on('set-file-path', (event, filePath) => {
@@ -473,8 +485,31 @@ app.on('open-file', (event, filePath) => {
   }
 });
 
+// ─── Content-Security-Policy (production only) ────────────────────────────────
+// Strict CSP in production. Dev is skipped because Vite HMR needs ws + inline.
+function applyCSP() {
+  if (isDev) return;
+  const csp = [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "script-src 'self'",
+    "connect-src 'self'",
+  ].join('; ');
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
+}
+
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  applyCSP();
   buildMenu();
   createWindow();
 
