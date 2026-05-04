@@ -7,21 +7,31 @@ const fs = require('fs');
 // ─── Dev mode detection ───────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-// Keep a global reference of the window
-let mainWindow = null;
-
-// File path requested before window was ready (double-click before app launched)
+// File path requested before any window was ready (cold launch from Finder)
 let pendingFileToOpen = null;
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function focusedWin() {
+  return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+}
+
+function winFromEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
 // ─── Window creation ──────────────────────────────────────────────────────────
-function createWindow() {
-  mainWindow = new BrowserWindow({
+function createWindow(opts = {}) {
+  const { initialMode = 'edit' } = opts;
+
+  const additionalArguments = [`--vimdown-mode=${initialMode}`];
+
+  const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 700,
     minHeight: 500,
-    titleBarStyle: 'hiddenInset',   // macOS native traffic lights + inset title bar
-    vibrancy: 'under-window',       // macOS vibrancy effect
+    titleBarStyle: 'hiddenInset',
+    vibrancy: 'under-window',
     visualEffectState: 'active',
     backgroundColor: '#00000000',
     title: 'VimDown',
@@ -31,36 +41,36 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      additionalArguments,
     },
   });
 
-  // Load the app
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    win.loadURL('http://localhost:5173');
+    win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'public', 'index.html'));
+    win.loadFile(path.join(__dirname, '..', 'dist', 'public', 'index.html'));
   }
 
-  // Track current file state
-  mainWindow._filePath = null;
-  mainWindow._isDirty = false;
+  // Per-window state
+  win._filePath = null;
+  win._isDirty = false;
+  win._initialMode = initialMode;
 
   // ─── Navigation guards ────────────────────────────────────────────────────
-  // External links open in the default browser; renderer cannot navigate away.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  mainWindow.webContents.on('will-navigate', (e, url) => {
-    if (url !== mainWindow.webContents.getURL()) {
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url !== win.webContents.getURL()) {
       e.preventDefault();
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     }
   });
 
   // ─── Context menu (right-click) ───────────────────────────────────────────
-  mainWindow.webContents.on('context-menu', (_e, params) => {
+  win.webContents.on('context-menu', (_e, params) => {
     const items = [];
     if (params.selectionText) {
       items.push({ role: 'copy' });
@@ -74,112 +84,92 @@ function createWindow() {
       items.push({ role: 'selectAll' });
     }
     if (items.length > 0) {
-      Menu.buildFromTemplate(items).popup({ window: mainWindow });
+      Menu.buildFromTemplate(items).popup({ window: win });
     }
   });
 
-  // Load any file that was double-clicked before the window existed
-  mainWindow.webContents.on('did-finish-load', () => {
+  // Load any file that was double-clicked before this window existed
+  win.webContents.on('did-finish-load', () => {
     if (pendingFileToOpen) {
       const filePath = pendingFileToOpen;
       pendingFileToOpen = null;
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        mainWindow._filePath = filePath;
-        mainWindow._isDirty = false;
-        mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
-        updateWindowTitle();
+        win._filePath = filePath;
+        win._isDirty = false;
+        win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
+        updateWindowTitle(win);
         app.addRecentDocument(filePath);
-        // Bring window to front — Finder holds focus during a cold launch
         app.focus({ steal: true });
-        mainWindow.show();
-        mainWindow.focus();
+        win.show();
+        win.focus();
       } catch (e) {
         dialog.showErrorBox('Error opening file', String(e));
       }
     }
   });
 
-  mainWindow.on('close', (e) => {
-    if (mainWindow._isDirty) {
+  win.on('close', (e) => {
+    if (win._isDirty) {
       e.preventDefault();
-      dialog.showMessageBox(mainWindow, {
+      dialog.showMessageBox(win, {
         type: 'question',
         buttons: ['Save', "Don't Save", 'Cancel'],
         defaultId: 0,
         cancelId: 2,
         message: 'Do you want to save your changes?',
-        detail: mainWindow._filePath
-          ? `Your changes to "${path.basename(mainWindow._filePath)}" will be lost if you don't save.`
+        detail: win._filePath
+          ? `Your changes to "${path.basename(win._filePath)}" will be lost if you don't save.`
           : 'Your unsaved document will be lost.',
       }).then(({ response }) => {
         if (response === 0) {
-          // Save then close
-          handleSaveFile(true);
+          handleSaveFile(win, true);
         } else if (response === 1) {
-          mainWindow._isDirty = false;
-          mainWindow.close();
+          win._isDirty = false;
+          win.close();
         }
-        // response === 2 → Cancel, do nothing
       });
     }
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  return win;
 }
-
-// ─── IPC: content changed ──────────────────────────────────────────────────────
-ipcMain.on('content-changed', (event, { content, isDirty }) => {
-  if (!mainWindow) return;
-  mainWindow._isDirty = isDirty;
-  updateWindowTitle();
-});
-
-// ─── IPC: get content (for save) ──────────────────────────────────────────────
-ipcMain.handle('get-content', async () => {
-  if (!mainWindow) return '';
-  return new Promise((resolve) => {
-    mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()')
-      .then(resolve)
-      .catch(() => resolve(''));
-  });
-});
 
 // ─── Window title helpers ─────────────────────────────────────────────────────
-function updateWindowTitle() {
-  if (!mainWindow) return;
-  const base = mainWindow._filePath ? path.basename(mainWindow._filePath) : 'Untitled';
-  const dirty = mainWindow._isDirty ? ' •' : '';
-  mainWindow.setTitle(`${base}${dirty} — VimDown`);
-  mainWindow.setRepresentedFilename(mainWindow._filePath || '');
-  mainWindow.setDocumentEdited(mainWindow._isDirty);
+function updateWindowTitle(win) {
+  if (!win || win.isDestroyed()) return;
+  const base = win._filePath ? path.basename(win._filePath) : 'Untitled';
+  const dirty = win._isDirty ? ' •' : '';
+  win.setTitle(`${base}${dirty} — VimDown`);
+  win.setRepresentedFilename(win._filePath || '');
+  win.setDocumentEdited(win._isDirty);
 }
 
-// ─── File operations ───────────────────────────────────────────────────────────
-async function handleNewFile() {
-  if (!mainWindow) return;
-  if (mainWindow._isDirty) {
-    const { response } = await dialog.showMessageBox(mainWindow, {
+// ─── File operations ──────────────────────────────────────────────────────────
+async function handleNewFile(win) {
+  win = win || focusedWin();
+  if (!win) { createWindow(); return; }
+  if (win._isDirty) {
+    const { response } = await dialog.showMessageBox(win, {
       type: 'question',
       buttons: ['Save', "Don't Save", 'Cancel'],
       defaultId: 0,
       cancelId: 2,
       message: 'Save changes before creating a new file?',
     });
-    if (response === 0) await handleSaveFile(false);
+    if (response === 0) await handleSaveFile(win, false);
     if (response === 2) return;
   }
-  mainWindow._filePath = null;
-  mainWindow._isDirty = false;
-  mainWindow.webContents.send('menu-new-file');
-  updateWindowTitle();
+  win._filePath = null;
+  win._isDirty = false;
+  win.webContents.send('menu-new-file');
+  updateWindowTitle(win);
 }
 
-async function handleOpenFile() {
-  if (!mainWindow) return;
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+async function handleOpenFile(win) {
+  win = win || focusedWin();
+  if (!win) { createWindow(); return; }
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: 'Open Markdown File',
     filters: [
       { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'mdwn', 'mdtxt', 'mdtext'] },
@@ -198,39 +188,39 @@ async function handleOpenFile() {
     dialog.showErrorBox('Error opening file', String(e));
     return;
   }
-  mainWindow._filePath = filePath;
-  mainWindow._isDirty = false;
-  mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
-  updateWindowTitle();
-  // Add to recent documents
+  win._filePath = filePath;
+  win._isDirty = false;
+  win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
+  updateWindowTitle(win);
   app.addRecentDocument(filePath);
 }
 
-async function handleSaveFile(closeAfter = false) {
-  if (!mainWindow) return;
-  if (mainWindow._filePath) {
-    // Save in place
-    const content = await mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+async function handleSaveFile(win, closeAfter = false) {
+  win = win || focusedWin();
+  if (!win) return;
+  if (win._filePath) {
+    const content = await win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
     try {
-      fs.writeFileSync(mainWindow._filePath, content || '', 'utf-8');
+      fs.writeFileSync(win._filePath, content || '', 'utf-8');
     } catch (e) {
       dialog.showErrorBox('Error saving file', String(e));
       return;
     }
-    mainWindow._isDirty = false;
-    updateWindowTitle();
-    mainWindow.webContents.send('file-saved', { filePath: mainWindow._filePath });
-    if (closeAfter) mainWindow.close();
+    win._isDirty = false;
+    updateWindowTitle(win);
+    win.webContents.send('file-saved', { filePath: win._filePath });
+    if (closeAfter) win.close();
   } else {
-    await handleSaveAsFile(closeAfter);
+    await handleSaveAsFile(win, closeAfter);
   }
 }
 
-async function handleSaveAsFile(closeAfter = false) {
-  if (!mainWindow) return;
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+async function handleSaveAsFile(win, closeAfter = false) {
+  win = win || focusedWin();
+  if (!win) return;
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: 'Save Markdown File',
-    defaultPath: mainWindow._filePath || 'untitled.md',
+    defaultPath: win._filePath || 'untitled.md',
     filters: [
       { name: 'Markdown', extensions: ['md'] },
       { name: 'Text', extensions: ['txt'] },
@@ -238,42 +228,84 @@ async function handleSaveAsFile(closeAfter = false) {
   });
   if (canceled || !filePath) return;
 
-  const content = await mainWindow.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+  const content = await win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
   try {
     fs.writeFileSync(filePath, content || '', 'utf-8');
   } catch (e) {
     dialog.showErrorBox('Error saving file', String(e));
     return;
   }
-  mainWindow._filePath = filePath;
-  mainWindow._isDirty = false;
-  updateWindowTitle();
-  mainWindow.webContents.send('file-saved', { filePath });
+  win._filePath = filePath;
+  win._isDirty = false;
+  updateWindowTitle(win);
+  win.webContents.send('file-saved', { filePath });
   app.addRecentDocument(filePath);
-  if (closeAfter) mainWindow.close();
+  if (closeAfter) win.close();
 }
 
-// Called by renderer to set file path after drag-drop or other opens
+// ─── IPC: per-window state from renderer ─────────────────────────────────────
+ipcMain.on('content-changed', (event, { isDirty }) => {
+  const win = winFromEvent(event);
+  if (!win) return;
+  win._isDirty = isDirty;
+  updateWindowTitle(win);
+});
+
+ipcMain.handle('get-content', async (event) => {
+  const win = winFromEvent(event);
+  if (!win) return '';
+  return new Promise((resolve) => {
+    win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()')
+      .then(resolve)
+      .catch(() => resolve(''));
+  });
+});
+
 ipcMain.on('set-file-path', (event, filePath) => {
-  if (!mainWindow) return;
-  mainWindow._filePath = filePath;
-  updateWindowTitle();
+  const win = winFromEvent(event);
+  if (!win) return;
+  win._filePath = filePath;
+  updateWindowTitle(win);
   if (filePath) app.addRecentDocument(filePath);
 });
 
 ipcMain.on('set-dirty', (event, isDirty) => {
-  if (!mainWindow) return;
-  mainWindow._isDirty = isDirty;
-  mainWindow.setDocumentEdited(isDirty);
-  updateWindowTitle();
+  const win = winFromEvent(event);
+  if (!win) return;
+  win._isDirty = isDirty;
+  win.setDocumentEdited(isDirty);
+  updateWindowTitle(win);
+});
+
+// ─── Toolbar button IPC (renderer → main) ────────────────────────────────────
+ipcMain.on('toolbar-new-file',  (event) => handleNewFile(winFromEvent(event)));
+ipcMain.on('toolbar-open-file', (event) => handleOpenFile(winFromEvent(event)));
+ipcMain.on('toolbar-save-file', (event) => handleSaveFile(winFromEvent(event), false));
+
+ipcMain.on('sync-vim-state', (_event, { enabled }) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const item = menu.getMenuItemById('vim-mode');
+  if (item) item.checked = enabled;
+});
+
+ipcMain.on('sync-dark-state', (_event, { dark }) => {
+  const menu = Menu.getApplicationMenu();
+  if (!menu) return;
+  const item = menu.getMenuItemById('dark-mode');
+  if (item) item.checked = dark;
 });
 
 // ─── macOS native menu ────────────────────────────────────────────────────────
 function buildMenu() {
   const isMac = process.platform === 'darwin';
 
+  const sendFocused = (channel, payload) => {
+    const win = focusedWin();
+    if (win) win.webContents.send(channel, payload);
+  };
+
   const template = [
-    // App menu (macOS only)
     ...(isMac ? [{
       label: app.name,
       submenu: [
@@ -289,41 +321,24 @@ function buildMenu() {
       ],
     }] : []),
 
-    // File
     {
       label: 'File',
       submenu: [
+        { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => handleNewFile() },
         {
-          label: 'New',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => handleNewFile(),
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => createWindow({ initialMode: 'preview' }),
         },
-        {
-          label: 'Open…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => handleOpenFile(),
-        },
+        { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => handleOpenFile() },
         { type: 'separator' },
-        {
-          label: 'Save',
-          accelerator: 'CmdOrCtrl+S',
-          click: () => handleSaveFile(false),
-        },
-        {
-          label: 'Save As…',
-          accelerator: 'CmdOrCtrl+Shift+S',
-          click: () => handleSaveAsFile(false),
-        },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => handleSaveFile() },
+        { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => handleSaveAsFile() },
         { type: 'separator' },
-        ...(isMac ? [
-          { role: 'close' },
-        ] : [
-          { role: 'quit' },
-        ]),
+        ...(isMac ? [{ role: 'close' }] : [{ role: 'quit' }]),
       ],
     },
 
-    // Edit
     {
       label: 'Edit',
       submenu: [
@@ -335,23 +350,15 @@ function buildMenu() {
         { role: 'paste' },
         { role: 'selectAll' },
         { type: 'separator' },
-        {
-          label: 'Find…',
-          accelerator: 'CmdOrCtrl+F',
-          click: () => mainWindow && mainWindow.webContents.send('menu-find'),
-        },
+        { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => sendFocused('menu-find') },
       ],
     },
 
-    // View
     {
       label: 'View',
       submenu: [
-        {
-          label: 'Toggle Preview',
-          accelerator: 'CmdOrCtrl+\\',
-          click: () => mainWindow && mainWindow.webContents.send('menu-toggle-preview'),
-        },
+        { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+E', click: () => sendFocused('menu-toggle-editor') },
+        { label: 'Toggle Preview', accelerator: 'CmdOrCtrl+\\', click: () => sendFocused('menu-toggle-preview') },
         { type: 'separator' },
         {
           label: 'Vim Mode',
@@ -359,9 +366,7 @@ function buildMenu() {
           type: 'checkbox',
           checked: true,
           id: 'vim-mode',
-          click: (menuItem) => {
-            mainWindow && mainWindow.webContents.send('menu-toggle-vim', { enabled: menuItem.checked });
-          },
+          click: (menuItem) => sendFocused('menu-toggle-vim', { enabled: menuItem.checked }),
         },
         { type: 'separator' },
         {
@@ -370,9 +375,7 @@ function buildMenu() {
           type: 'checkbox',
           checked: false,
           id: 'dark-mode',
-          click: (menuItem) => {
-            mainWindow && mainWindow.webContents.send('menu-toggle-dark', { dark: menuItem.checked });
-          },
+          click: (menuItem) => sendFocused('menu-toggle-dark', { dark: menuItem.checked }),
         },
         { type: 'separator' },
         { role: 'resetZoom' },
@@ -389,24 +392,14 @@ function buildMenu() {
       ],
     },
 
-    // Export
     {
       label: 'Export',
       submenu: [
-        {
-          label: 'Print…',
-          accelerator: 'CmdOrCtrl+P',
-          click: () => mainWindow && mainWindow.webContents.send('menu-print'),
-        },
-        {
-          label: 'Export as PDF…',
-          accelerator: 'CmdOrCtrl+Shift+P',
-          click: () => mainWindow && mainWindow.webContents.send('menu-export-pdf'),
-        },
+        { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: () => sendFocused('menu-print') },
+        { label: 'Export as PDF…', accelerator: 'CmdOrCtrl+Shift+P', click: () => sendFocused('menu-export-pdf') },
       ],
     },
 
-    // Window (macOS)
     ...(isMac ? [{
       label: 'Window',
       submenu: [
@@ -417,76 +410,31 @@ function buildMenu() {
       ],
     }] : []),
 
-    // Help
     {
       role: 'help',
       submenu: [
-        {
-          label: 'Learn More',
-          click: () => shell.openExternal('https://www.perplexity.ai/computer'),
-        },
+        { label: 'Learn More', click: () => shell.openExternal('https://www.perplexity.ai/computer') },
       ],
     },
   ];
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
-  return menu;
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-
-// ─── Sync vim/dark menu checkboxes from renderer ──────────────────────────────
-// ─── Toolbar button IPC (renderer → main) ────────────────────────────────────
-ipcMain.on('toolbar-new-file',  () => handleNewFile());
-ipcMain.on('toolbar-open-file', () => handleOpenFile());
-ipcMain.on('toolbar-save-file', () => handleSaveFile());
-
-ipcMain.on('sync-vim-state', (event, { enabled }) => {
-  const menu = Menu.getApplicationMenu();
-  if (!menu) return;
-  const item = menu.getMenuItemById('vim-mode');
-  if (item) item.checked = enabled;
-});
-
-ipcMain.on('sync-dark-state', (event, { dark }) => {
-  const menu = Menu.getApplicationMenu();
-  if (!menu) return;
-  const item = menu.getMenuItemById('dark-mode');
-  if (item) item.checked = dark;
-});
 
 // ─── Open file from command line / recent docs ────────────────────────────────
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  if (mainWindow && mainWindow.webContents) {
-    // App running with a window open — load file and bring to front
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      mainWindow._filePath = filePath;
-      mainWindow._isDirty = false;
-      mainWindow.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
-      updateWindowTitle();
-      app.addRecentDocument(filePath);
-      // app.focus must come before window focus to reliably steal from Finder
-      app.focus({ steal: true });
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    } catch (e) {
-      dialog.showErrorBox('Error opening file', String(e));
-    }
-  } else if (app.isReady()) {
-    // Window was closed but app is still alive in the background (macOS).
-    // whenReady() won't fire again — create a new window manually.
+  if (app.isReady()) {
+    // Always open in a new window — preserves existing windows
     pendingFileToOpen = filePath;
-    createWindow();
+    createWindow({ initialMode: 'preview' });
+    app.focus({ steal: true });
   } else {
-    // App hasn't finished launching yet — stash for did-finish-load
     pendingFileToOpen = filePath;
   }
 });
 
 // ─── Content-Security-Policy (production only) ────────────────────────────────
-// Strict CSP in production. Dev is skipped because Vite HMR needs ws + inline.
 function applyCSP() {
   if (isDev) return;
   const csp = [
@@ -507,7 +455,7 @@ function applyCSP() {
   });
 }
 
-// ─── App lifecycle ─────────────────────────────────────────────────────────────
+// ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   applyCSP();
   buildMenu();
@@ -516,11 +464,13 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-    } else if (mainWindow) {
-      // Bring existing window to front
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+    } else {
+      const win = focusedWin();
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
     }
   });
 });

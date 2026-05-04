@@ -17,6 +17,8 @@ import {
   Keyboard,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   FileText,
   FolderOpen,
   FilePlus,
@@ -64,6 +66,8 @@ declare global {
       onToggleDark: (cb: (data: { dark: boolean }) => void) => void;
       onPrint: (cb: () => void) => void;
       onExportPdf: (cb: () => void) => void;
+      onToggleEditor: (cb: () => void) => void;
+      getInitMode: () => string;
       removeAllListeners: (channel: string) => void;
       openFileDialog: () => void;
       newFileAction: () => void;
@@ -161,7 +165,9 @@ export default function EditorPage() {
   );
   const [vimEnabled, setVimEnabled] = useState(true);
   const [content, setContent] = useState(getInitialDoc);
+  const initMode = isElectron ? (window.electronAPI?.getInitMode?.() ?? "edit") : "edit";
   const [showPreview, setShowPreview] = useState(true);
+  const [showEditor, setShowEditor] = useState(initMode !== "preview");
   const [vimMode, setVimMode] = useState("NORMAL");
   const [lineInfo, setLineInfo] = useState({ line: 1, col: 1 });
   const [wordCount, setWordCount] = useState(0);
@@ -189,6 +195,11 @@ export default function EditorPage() {
   useEffect(() => {
     setWordCount(content.trim().split(/\s+/).filter(Boolean).length);
   }, [content]);
+
+  // ─── Invariant: at least one pane must be visible ──────────────────────────
+  useEffect(() => {
+    if (!showEditor && !showPreview) setShowPreview(true);
+  }, [showEditor, showPreview]);
 
   // ─── Expose editor content to Electron main process ─────────────────────────
   useEffect(() => {
@@ -318,6 +329,7 @@ export default function EditorPage() {
     });
 
     api.onTogglePreview(() => setShowPreview((p) => !p));
+    api.onToggleEditor(() => setShowEditor((e) => !e));
     api.onToggleVim(({ enabled }) => setVimEnabled(enabled));
     api.onToggleDark(({ dark }) => setDarkMode(dark));
     api.onPrint(() => handlePrint());
@@ -325,8 +337,8 @@ export default function EditorPage() {
 
     return () => {
       ["menu-new-file", "menu-open-file", "file-saved", "menu-find",
-       "menu-toggle-preview", "menu-toggle-vim", "menu-toggle-dark",
-       "menu-print", "menu-export-pdf"].forEach((ch) => api.removeAllListeners(ch));
+       "menu-toggle-preview", "menu-toggle-editor", "menu-toggle-vim",
+       "menu-toggle-dark", "menu-print", "menu-export-pdf"].forEach((ch) => api.removeAllListeners(ch));
     };
   }, [loadContent]);
 
@@ -661,7 +673,28 @@ export default function EditorPage() {
           {/* Group 4: Layout */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowPreview(!showPreview)} data-testid="toggle-preview">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowEditor((e) => !e)}
+                data-testid="toggle-editor"
+              >
+                {showEditor ? <PanelRightOpen className="w-4 h-4" /> : <PanelRightClose className="w-4 h-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{showEditor ? "Hide editor" : "Show editor"}{isElectron ? " (⌘E)" : ""}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowPreview((p) => !p)}
+                data-testid="toggle-preview"
+              >
                 {showPreview ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
               </Button>
             </TooltipTrigger>
@@ -816,11 +849,17 @@ export default function EditorPage() {
 
       {/* Editor + Preview */}
       <div id="split-container" className="flex-1 flex overflow-hidden">
-        <div className="h-full overflow-hidden" style={{ width: showPreview ? `${splitPercent}%` : "100%" }}>
+        <div
+          className="h-full overflow-hidden"
+          style={{
+            width: showEditor ? (showPreview ? `${splitPercent}%` : "100%") : 0,
+            display: showEditor ? "block" : "none",
+          }}
+        >
           <div ref={editorRef} className="h-full" data-testid="editor-pane" />
         </div>
 
-        {showPreview && (
+        {showEditor && showPreview && (
           <div
             className="w-1 cursor-col-resize bg-border hover:bg-primary/40 transition-colors shrink-0"
             onMouseDown={handleMouseDown}
@@ -829,7 +868,10 @@ export default function EditorPage() {
         )}
 
         {showPreview && (
-          <div className="h-full overflow-auto bg-background" style={{ width: `${100 - splitPercent}%` }}>
+          <div
+            className="h-full overflow-auto bg-background"
+            style={{ width: showEditor ? `${100 - splitPercent}%` : "100%" }}
+          >
             <div className="flex items-center h-8 px-4 border-b border-border bg-card/50">
               <FileText className="w-3.5 h-3.5 text-muted-foreground mr-1.5" />
               <span className="text-xs text-muted-foreground font-medium">Preview</span>

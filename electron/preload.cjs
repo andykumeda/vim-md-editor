@@ -32,6 +32,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onToggleDark: (cb) => ipcRenderer.on('menu-toggle-dark', (event, data) => cb(data)),
   onPrint: (cb) => ipcRenderer.on('menu-print', cb),
   onExportPdf: (cb) => ipcRenderer.on('menu-export-pdf', cb),
+  onToggleEditor: (cb) => ipcRenderer.on('menu-toggle-editor', cb),
+
+  // Initial window mode passed via additionalArguments at window creation
+  getInitMode: () => {
+    const arg = process.argv.find((a) => typeof a === 'string' && a.startsWith('--vimdown-mode='));
+    return arg ? arg.split('=')[1] : 'edit';
+  },
 
   // Toolbar-button-triggered actions (renderer → main)
   openFileDialog: () => ipcRenderer.send('toolbar-open-file'),
