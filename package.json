@@ -60,6 +60,18 @@
               "mkd",
               "txt"
             ]
+          },
+          {
+            "CFBundleTypeName": "Convertible Document",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "CFBundleTypeExtensions": [
+              "pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls",
+              "html", "htm", "csv", "xml", "json", "epub",
+              "png", "jpg", "jpeg", "tiff", "bmp",
+              "mp3", "wav", "m4a", "flac", "ogg",
+              "zip"
+            ]
           }
         ],
         "NSDocumentsFolderUsageDescription": "VimDown needs access to open and save markdown files.",
@@ -123,6 +135,17 @@
         "role": "Editor",
         "isPackage": false,
         "rank": "Owner"
+      },
+      {
+        "ext": [
+          "pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls",
+          "html", "htm", "csv", "xml", "json", "epub"
+        ],
+        "name": "Convertible Document",
+        "description": "Document VimDown can convert to Markdown",
+        "role": "Viewer",
+        "isPackage": false,
+        "rank": "Alternate"
       }
     ]
   },

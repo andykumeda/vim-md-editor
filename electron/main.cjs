@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -9,6 +10,23 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // File path requested before any window was ready (cold launch from Finder)
 let pendingFileToOpen = null;
+// Non-markdown file dropped onto app at cold launch — convert via markitdown
+let pendingFileToConvert = null;
+// Result of a markitdown conversion, to load into the next window that opens
+let pendingConvertedDoc = null;
+
+// Extensions that should route through markitdown rather than open as text
+const NON_MD_EXTS = new Set([
+  '.pdf', '.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
+  '.html', '.htm', '.csv', '.xml', '.json', '.epub',
+  '.png', '.jpg', '.jpeg', '.tiff', '.bmp',
+  '.mp3', '.wav', '.m4a', '.flac', '.ogg',
+  '.zip',
+]);
+
+function isMarkitdownTarget(filePath) {
+  return NON_MD_EXTS.has(path.extname(filePath).toLowerCase());
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function focusedWin() {
@@ -90,6 +108,18 @@ function createWindow(opts = {}) {
 
   // Load any file that was double-clicked before this window existed
   win.webContents.on('did-finish-load', () => {
+    if (pendingConvertedDoc) {
+      const { content, fileName } = pendingConvertedDoc;
+      pendingConvertedDoc = null;
+      win._filePath = null;
+      win._isDirty = true; // unsaved derivative — user must Save As
+      win.webContents.send('menu-open-file', { content, filePath: null, fileName });
+      updateWindowTitle(win);
+      app.focus({ steal: true });
+      win.show();
+      win.focus();
+      return;
+    }
     if (pendingFileToOpen) {
       const filePath = pendingFileToOpen;
       pendingFileToOpen = null;
@@ -331,6 +361,7 @@ function buildMenu() {
           click: () => createWindow({ initialMode: 'preview' }),
         },
         { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => handleOpenFile() },
+        { label: 'Convert to Markdown…', accelerator: 'CmdOrCtrl+Shift+O', click: () => handleConvertDialog() },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => handleSaveFile() },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => handleSaveAsFile() },
@@ -421,16 +452,105 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// ─── markitdown conversion ────────────────────────────────────────────────────
+// Spawn via a login shell so we inherit the user's PATH (pip-installed
+// markitdown frequently lives in ~/.local/bin or pyenv shims that the
+// GUI-launched Electron process otherwise cannot see).
+function convertWithMarkitdown(filePath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('/bin/bash', ['-lc', 'markitdown -- "$VIMDOWN_FILE"'], {
+      env: { ...process.env, VIMDOWN_FILE: filePath },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) return resolve(stdout);
+      if (code === 127 || /command not found|markitdown:.*not found/i.test(stderr)) {
+        return reject(new Error('NOT_INSTALLED'));
+      }
+      reject(new Error(stderr.trim() || `markitdown exited with code ${code}`));
+    });
+  });
+}
+
+function showMarkitdownInstallDialog(win) {
+  const target = win || focusedWin();
+  const detail = [
+    'VimDown converts Office docs, PDFs, HTML, images and audio to',
+    'Markdown using Microsoft markitdown. Install one of:',
+    '',
+    '  pipx install markitdown[all]',
+    '  pip install markitdown[all]',
+    '',
+    'After installing, restart VimDown so the app picks up the new PATH.',
+  ].join('\n');
+  dialog.showMessageBox(target, {
+    type: 'info',
+    title: 'markitdown not found',
+    message: 'markitdown is required to convert this file.',
+    detail,
+    buttons: ['Open install page', 'OK'],
+    defaultId: 1,
+    cancelId: 1,
+  }).then(({ response }) => {
+    if (response === 0) shell.openExternal('https://github.com/microsoft/markitdown');
+  });
+}
+
+async function openConverted(filePath) {
+  let content;
+  try {
+    content = await convertWithMarkitdown(filePath);
+  } catch (e) {
+    if (e && e.message === 'NOT_INSTALLED') {
+      showMarkitdownInstallDialog(null);
+    } else {
+      dialog.showErrorBox('Conversion failed', String(e && e.message ? e.message : e));
+    }
+    return;
+  }
+  const baseName = path.basename(filePath, path.extname(filePath)) + '.md';
+  pendingConvertedDoc = { content, fileName: baseName, sourcePath: filePath };
+  createWindow({ initialMode: 'preview' });
+}
+
+async function handleConvertDialog() {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Convert to Markdown',
+    filters: [
+      { name: 'Documents',
+        extensions: ['pdf','docx','doc','pptx','ppt','xlsx','xls','html','htm','csv','xml','json','epub'] },
+      { name: 'Images', extensions: ['png','jpg','jpeg','tiff','bmp'] },
+      { name: 'Audio',  extensions: ['mp3','wav','m4a','flac','ogg'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths.length) return;
+  await openConverted(filePaths[0]);
+}
+
 // ─── Open file from command line / recent docs ────────────────────────────────
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
   if (app.isReady()) {
-    // Always open in a new window — preserves existing windows
-    pendingFileToOpen = filePath;
-    createWindow({ initialMode: 'preview' });
-    app.focus({ steal: true });
+    if (isMarkitdownTarget(filePath)) {
+      openConverted(filePath);
+      app.focus({ steal: true });
+    } else {
+      pendingFileToOpen = filePath;
+      createWindow({ initialMode: 'preview' });
+      app.focus({ steal: true });
+    }
   } else {
-    pendingFileToOpen = filePath;
+    if (isMarkitdownTarget(filePath)) {
+      pendingFileToConvert = filePath;
+    } else {
+      pendingFileToOpen = filePath;
+    }
   }
 });
 
@@ -459,7 +579,15 @@ function applyCSP() {
 app.whenReady().then(() => {
   applyCSP();
   buildMenu();
-  createWindow();
+
+  // Cold launch: a non-md file was queued for conversion before app was ready
+  if (pendingFileToConvert) {
+    const f = pendingFileToConvert;
+    pendingFileToConvert = null;
+    openConverted(f);
+  } else {
+    createWindow();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
