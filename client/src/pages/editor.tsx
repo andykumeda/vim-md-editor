@@ -138,6 +138,10 @@ function getInitialDoc(): string {
 const vimCompartment = new Compartment();
 const themeCompartment = new Compartment();
 
+type WebkitAppRegionStyle = React.CSSProperties & {
+  WebkitAppRegion?: "drag" | "no-drag";
+};
+
 function createLightTheme() {
   return EditorView.theme({
     "&": { backgroundColor: "hsl(210 20% 98%)", color: "hsl(220 20% 12%)" },
@@ -399,11 +403,16 @@ export default function EditorPage() {
     URL.revokeObjectURL(url);
   }, []);
 
+  const confirmReplaceDocument = useCallback((message: string) => {
+    return !isDirtyRef.current || window.confirm(message);
+  }, []);
+
   const handleOpenFile = useCallback(async () => {
     if (isElectron) {
       window.electronAPI?.openFileDialog?.();
       return;
     }
+    if (!confirmReplaceDocument("Discard unsaved changes and open another file?")) return;
     if (hasFSA) {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
@@ -417,7 +426,7 @@ export default function EditorPage() {
     } else {
       fileInputRef.current?.click();
     }
-  }, [loadContent]);
+  }, [confirmReplaceDocument, loadContent]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -434,9 +443,10 @@ export default function EditorPage() {
       window.electronAPI?.newFileAction?.();
       return;
     }
+    if (!confirmReplaceDocument("Discard unsaved changes and create a new file?")) return;
     fileHandleRef.current = null;
     loadContent("", null);
-  }, [loadContent]);
+  }, [confirmReplaceDocument, loadContent]);
 
   const handleSaveFile = useCallback(async () => {
     if (isElectron) {
@@ -461,7 +471,11 @@ export default function EditorPage() {
         initialContentRef.current = text;
         isDirtyRef.current = false;
         window.electronAPI?.setDirty(false);
-      } catch { /* cancelled — fall back to download */ }
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== "AbortError") {
+          downloadFile(text, fileName ?? "untitled.md");
+        }
+      }
     } else {
       downloadFile(text, fileName ?? "untitled.md");
     }
@@ -562,20 +576,22 @@ export default function EditorPage() {
 
   // ─── Top padding for macOS traffic lights ───────────────────────────────────
   // hiddenInset titlebar makes the toolbar sit under the traffic light area
-  const toolbarStyle = isElectron
+  const toolbarStyle: WebkitAppRegionStyle = isElectron
     ? { paddingLeft: "80px" } // macOS traffic lights are ~72px wide
     : {};
+  const toolbarDragStyle: WebkitAppRegionStyle = { ...toolbarStyle, WebkitAppRegion: "drag" };
+  const toolbarNoDragStyle: WebkitAppRegionStyle = { WebkitAppRegion: "no-drag" };
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground no-print">
       {/* Toolbar */}
       <header
         className="flex items-center justify-between h-11 px-3 border-b border-border bg-card shrink-0"
-        style={{ ...toolbarStyle, WebkitAppRegion: "drag" } as React.CSSProperties}
+        style={toolbarDragStyle}
         data-testid="toolbar"
       >
         {/* Left: Document Actions (Persistence + Output) */}
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className="flex items-center gap-1" style={toolbarNoDragStyle}>
           <div className="flex items-center gap-1.5 mr-2">
             <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-label="VimDown">
               {/* Document body */}
@@ -649,7 +665,7 @@ export default function EditorPage() {
         </div>
 
         {/* Right: Workspace & View Actions */}
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className="flex items-center gap-1" style={toolbarNoDragStyle}>
           {/* Group 3: Editor Mode */}
           <Tooltip>
             <TooltipTrigger asChild>

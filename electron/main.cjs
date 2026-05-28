@@ -175,21 +175,37 @@ function updateWindowTitle(win) {
   win.setDocumentEdited(win._isDirty);
 }
 
+async function confirmUnsavedChanges(win, message, detail) {
+  if (!win || !win._isDirty) return true;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['Save', "Don't Save", 'Cancel'],
+    defaultId: 0,
+    cancelId: 2,
+    message,
+    detail,
+  });
+  if (response === 0) return handleSaveFile(win, false);
+  if (response === 1) return true;
+  return false;
+}
+
+async function getEditorContent(win) {
+  try {
+    const content = await win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+    return typeof content === 'string' ? content : '';
+  } catch (e) {
+    dialog.showErrorBox('Error reading editor content', String(e));
+    return null;
+  }
+}
+
 // ─── File operations ──────────────────────────────────────────────────────────
 async function handleNewFile(win) {
   win = win || focusedWin();
   if (!win) { createWindow(); return; }
-  if (win._isDirty) {
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'question',
-      buttons: ['Save', "Don't Save", 'Cancel'],
-      defaultId: 0,
-      cancelId: 2,
-      message: 'Save changes before creating a new file?',
-    });
-    if (response === 0) await handleSaveFile(win, false);
-    if (response === 2) return;
-  }
+  const shouldContinue = await confirmUnsavedChanges(win, 'Save changes before creating a new file?');
+  if (!shouldContinue) return;
   win._filePath = null;
   win._isDirty = false;
   win.webContents.send('menu-new-file');
@@ -199,6 +215,8 @@ async function handleNewFile(win) {
 async function handleOpenFile(win) {
   win = win || focusedWin();
   if (!win) { createWindow(); return; }
+  const shouldContinue = await confirmUnsavedChanges(win, 'Save changes before opening another file?');
+  if (!shouldContinue) return;
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: 'Open Markdown File',
     filters: [
@@ -227,27 +245,29 @@ async function handleOpenFile(win) {
 
 async function handleSaveFile(win, closeAfter = false) {
   win = win || focusedWin();
-  if (!win) return;
+  if (!win) return false;
   if (win._filePath) {
-    const content = await win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+    const content = await getEditorContent(win);
+    if (content === null) return false;
     try {
-      fs.writeFileSync(win._filePath, content || '', 'utf-8');
+      fs.writeFileSync(win._filePath, content, 'utf-8');
     } catch (e) {
       dialog.showErrorBox('Error saving file', String(e));
-      return;
+      return false;
     }
     win._isDirty = false;
     updateWindowTitle(win);
     win.webContents.send('file-saved', { filePath: win._filePath });
     if (closeAfter) win.close();
+    return true;
   } else {
-    await handleSaveAsFile(win, closeAfter);
+    return handleSaveAsFile(win, closeAfter);
   }
 }
 
 async function handleSaveAsFile(win, closeAfter = false) {
   win = win || focusedWin();
-  if (!win) return;
+  if (!win) return false;
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: 'Save Markdown File',
     defaultPath: win._filePath || 'untitled.md',
@@ -256,14 +276,15 @@ async function handleSaveAsFile(win, closeAfter = false) {
       { name: 'Text', extensions: ['txt'] },
     ],
   });
-  if (canceled || !filePath) return;
+  if (canceled || !filePath) return false;
 
-  const content = await win.webContents.executeJavaScript('window.__getEditorContent && window.__getEditorContent()');
+  const content = await getEditorContent(win);
+  if (content === null) return false;
   try {
-    fs.writeFileSync(filePath, content || '', 'utf-8');
+    fs.writeFileSync(filePath, content, 'utf-8');
   } catch (e) {
     dialog.showErrorBox('Error saving file', String(e));
-    return;
+    return false;
   }
   win._filePath = filePath;
   win._isDirty = false;
@@ -271,6 +292,7 @@ async function handleSaveAsFile(win, closeAfter = false) {
   win.webContents.send('file-saved', { filePath });
   app.addRecentDocument(filePath);
   if (closeAfter) win.close();
+  return true;
 }
 
 // ─── IPC: per-window state from renderer ─────────────────────────────────────
