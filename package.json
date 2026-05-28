@@ -1,7 +1,7 @@
 {
   "name": "vimdown",
   "productName": "VimDown",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A Vim-keybinding markdown editor with split-pane preview",
   "author": "andy@kumeda.com",
   "type": "module",
@@ -10,10 +10,11 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build:web": "vite build",
-    "build": "tsx script/build.ts && npm run electron:build",
+    "build": "tsx script/build.ts && npm run electron:build && npm run install:mac",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
+    "install:mac": "tsx script/install-macos-app.ts",
     "electron:dev": "concurrently \"vite --config vite.config.ts\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "vite build && electron-builder --mac --arm64",
     "electron:build:x64": "vite build && electron-builder --mac --x64",

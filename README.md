@@ -65,15 +65,22 @@ version in `package.json` is what Electron Builder writes into
 installed app metadata.
 
 ```bash
-npm run electron:build            # Apple Silicon (arm64) → release/VimDown-${version}-arm64.dmg
-npm run electron:build:x64        # Intel
-npm run electron:build:universal  # Both architectures
+npm run build                     # Apple Silicon production build, then install to /Applications/VimDown.app
+npm run electron:build            # Apple Silicon package only → release/VimDown-${version}-arm64.dmg
+npm run electron:build:x64        # Intel package only
+npm run electron:build:universal  # Both architectures package only
 ```
 
-**Installing or updating:** quit VimDown if it is running, open the `.dmg`,
-then drag VimDown to `/Applications` and choose Replace. If another app does
-not immediately show VimDown as an option for `.md` files, launch VimDown once
-and register it with LaunchServices:
+The production build copies the newest matching `VimDown.app` bundle from
+`release/` to `/Applications/VimDown.app` and registers it with LaunchServices.
+If VimDown is running, quit it and rerun:
+
+```bash
+npm run install:mac
+```
+
+If another app does not immediately show VimDown as an option for `.md` files,
+launch VimDown once or register it manually:
 
 ```bash
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/VimDown.app
