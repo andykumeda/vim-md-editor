@@ -5,6 +5,7 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 ## Features
 
 - **Vim mode** — full Normal / Insert / Visual / Replace support via CodeMirror Vim; toggle with the toolbar switch or keyboard shortcut
+- **Vim write commands** — `:w`, `:write`, `:wq`, `:writequit`, `:x`, `:q`, `:q!`, `:e`, and `:enew` are wired into the app's native file actions
 - **Markdown toolbar** — when Vim mode is off, a formatting bar provides buttons for headings, bold, italic, strikethrough, inline code, blockquote, lists, links, tables, hr, and code blocks
 - **Live split-pane preview** — rendered markdown updates as you type; drag the divider to resize
 - **Dark / Light mode** — follows system preference on load; toggle any time
@@ -45,6 +46,17 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 | `⌘F` | Find |
 | `⌘P` | Print |
 | `⌘⇧P` | Export as PDF |
+
+### Vim command-line file actions
+
+| Command | Action |
+|---------|--------|
+| `:w`, `:write` | Save the current document |
+| `:wq`, `:writequit`, `:x` | Save, then close the window |
+| `:q` | Close the window, prompting for unsaved changes |
+| `:q!` | Close the window without saving |
+| `:e`, `:edit` | Open a Markdown file |
+| `:enew` | Create a new document |
 
 ### Development (desktop)
 

@@ -365,6 +365,18 @@ function handleRevealInFinder(win) {
   shell.showItemInFolder(win._filePath);
 }
 
+function handleCloseWindow(win, force = false) {
+  win = win || focusedWin();
+  if (!win) return false;
+  if (force) {
+    win._isDirty = false;
+    win.setDocumentEdited(false);
+    updateWindowTitle(win);
+  }
+  win.close();
+  return true;
+}
+
 // ─── IPC: per-window state from renderer ─────────────────────────────────────
 ipcMain.on('content-changed', (event, { isDirty }) => {
   const win = winFromEvent(event);
@@ -385,6 +397,18 @@ ipcMain.handle('get-content', async (event) => {
 
 ipcMain.handle('rename-file', (event, newName) => {
   return handleRenameFile(winFromEvent(event), newName);
+});
+
+ipcMain.handle('save-file', (event) => {
+  return handleSaveFile(winFromEvent(event), false);
+});
+
+ipcMain.handle('save-and-close-file', (event) => {
+  return handleSaveFile(winFromEvent(event), true);
+});
+
+ipcMain.handle('close-window', (event, { force } = {}) => {
+  return handleCloseWindow(winFromEvent(event), force);
 });
 
 ipcMain.on('set-file-path', (event, filePath) => {

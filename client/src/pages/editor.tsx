@@ -6,7 +6,7 @@ import { languages } from "@codemirror/language-data";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from "@codemirror/language";
-import { vim, getCM } from "@replit/codemirror-vim";
+import { vim, getCM, Vim } from "@replit/codemirror-vim";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
@@ -82,6 +82,9 @@ declare global {
       saveFileAction: () => void;
       revealInFinder: () => void;
       renameFile: (newName: string) => Promise<{ filePath: string; fileName: string }>;
+      saveFile: () => Promise<boolean>;
+      saveAndCloseFile: () => Promise<boolean>;
+      closeWindow: (force?: boolean) => Promise<boolean>;
     };
     __getEditorContent?: () => string;
   }
@@ -202,6 +205,10 @@ export default function EditorPage() {
   const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const isDragging = useRef(false);
   const [splitPercent, setSplitPercent] = useState(50);
+  const saveDocumentRef = useRef<() => Promise<boolean>>(async () => false);
+  const closeDocumentRef = useRef<(force?: boolean) => Promise<boolean>>(async () => false);
+  const openDocumentRef = useRef<() => void>(() => {});
+  const newDocumentRef = useRef<() => void>(() => {});
 
   // Track whether content has been edited since last save
   const isDirtyRef = useRef(false);
@@ -503,10 +510,9 @@ export default function EditorPage() {
     loadContent("", null, null, { mode: "split" });
   }, [confirmReplaceDocument, loadContent]);
 
-  const handleSaveFile = useCallback(async () => {
+  const handleSaveFile = useCallback(async (): Promise<boolean> => {
     if (isElectron) {
-      window.electronAPI?.saveFileAction?.();
-      return;
+      return await window.electronAPI?.saveFile?.() ?? false;
     }
     const text = viewRef.current?.state.doc.toString() ?? content;
     if (hasFSA) {
@@ -528,15 +534,66 @@ export default function EditorPage() {
         isDirtyRef.current = false;
         setIsDirty(false);
         window.electronAPI?.setDirty(false);
+        return true;
       } catch (error) {
         if (!(error instanceof DOMException) || error.name !== "AbortError") {
           downloadFile(text, fileName ?? "untitled.md");
+          return true;
         }
+        return false;
       }
     } else {
       downloadFile(text, fileName ?? "untitled.md");
+      return true;
     }
   }, [content, fileName, downloadFile]);
+
+  const handleCloseDocument = useCallback(async (force = false): Promise<boolean> => {
+    if (isElectron) {
+      return await window.electronAPI?.closeWindow?.(force) ?? false;
+    }
+
+    if (!force && isDirtyRef.current && !window.confirm("Close this document without saving?")) {
+      return false;
+    }
+
+    window.close();
+    return true;
+  }, []);
+
+  useEffect(() => {
+    saveDocumentRef.current = handleSaveFile;
+    closeDocumentRef.current = handleCloseDocument;
+    openDocumentRef.current = handleOpenFile;
+    newDocumentRef.current = handleNewFile;
+  }, [handleCloseDocument, handleNewFile, handleOpenFile, handleSaveFile]);
+
+  useEffect(() => {
+    const save = () => {
+      void saveDocumentRef.current();
+    };
+    const saveAndClose = () => {
+      if (isElectron) {
+        void window.electronAPI?.saveAndCloseFile?.();
+        return;
+      }
+      void saveDocumentRef.current().then((saved) => {
+        if (saved) void closeDocumentRef.current(false);
+      });
+    };
+    const close = (_cm: unknown, params?: { argString?: string }) => {
+      const force = params?.argString?.trim().startsWith("!") ?? false;
+      void closeDocumentRef.current(force);
+    };
+
+    Vim.defineEx("write", "w", save);
+    Vim.defineEx("wq", "wq", saveAndClose);
+    Vim.defineEx("writequit", "writeq", saveAndClose);
+    Vim.defineEx("xit", "x", saveAndClose);
+    Vim.defineEx("quit", "q", close);
+    Vim.defineEx("edit", "e", () => openDocumentRef.current());
+    Vim.defineEx("enew", "ene", () => newDocumentRef.current());
+  }, []);
 
   // ─── Markdown formatting helpers (non-Vim mode) ──────────────────────────────
   const insertMarkdown = useCallback((before: string, after = "", placeholder = "text") => {

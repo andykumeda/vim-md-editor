@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileAction: () => ipcRenderer.send('toolbar-save-file'),
   revealInFinder: () => ipcRenderer.send('toolbar-reveal-file'),
   renameFile: (newName) => ipcRenderer.invoke('rename-file', newName),
+  saveFile: () => ipcRenderer.invoke('save-file'),
+  saveAndCloseFile: () => ipcRenderer.invoke('save-and-close-file'),
+  closeWindow: (force) => ipcRenderer.invoke('close-window', { force }),
 
   // Remove listeners (cleanup)
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
