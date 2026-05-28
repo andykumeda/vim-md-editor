@@ -52,13 +52,32 @@ Starts Vite on port 5173, then launches Electron against it. Hot-reload is activ
 
 ### Building the macOS app
 
+Before building a releasable app, bump the package version so macOS and
+LaunchServices see a new app version:
+
 ```bash
-npm run electron:build            # Apple Silicon (arm64) → release/VimDown-1.0.0-arm64.dmg
+npm version patch --no-git-tag-version  # 1.0.0 → 1.0.1
+```
+
+Use `minor` or `major` instead of `patch` when the change warrants it. The
+version in `package.json` is what Electron Builder writes into
+`CFBundleShortVersionString`, `CFBundleVersion`, the DMG name, and the
+installed app metadata.
+
+```bash
+npm run electron:build            # Apple Silicon (arm64) → release/VimDown-${version}-arm64.dmg
 npm run electron:build:x64        # Intel
 npm run electron:build:universal  # Both architectures
 ```
 
-**Installing:** open the `.dmg`, drag VimDown to `/Applications`.
+**Installing or updating:** quit VimDown if it is running, open the `.dmg`,
+then drag VimDown to `/Applications` and choose Replace. If another app does
+not immediately show VimDown as an option for `.md` files, launch VimDown once
+and register it with LaunchServices:
+
+```bash
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/VimDown.app
+```
 
 > The app is not code-signed. On first launch: right-click → Open, or System Settings → Privacy & Security → Open Anyway.
 

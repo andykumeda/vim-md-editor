@@ -1,7 +1,7 @@
 {
   "name": "vimdown",
   "productName": "VimDown",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Vim-keybinding markdown editor with split-pane preview",
   "author": "andy@kumeda.com",
   "type": "module",
