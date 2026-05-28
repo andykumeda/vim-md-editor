@@ -39,7 +39,7 @@ function winFromEvent(event) {
 
 // ─── Window creation ──────────────────────────────────────────────────────────
 function createWindow(opts = {}) {
-  const { initialMode = 'edit' } = opts;
+  const { initialMode = 'split' } = opts;
 
   const additionalArguments = [`--vimdown-mode=${initialMode}`];
 
@@ -72,6 +72,7 @@ function createWindow(opts = {}) {
 
   // Per-window state
   win._filePath = null;
+  win._displayName = null;
   win._isDirty = false;
   win._initialMode = initialMode;
 
@@ -112,8 +113,9 @@ function createWindow(opts = {}) {
       const { content, fileName } = pendingConvertedDoc;
       pendingConvertedDoc = null;
       win._filePath = null;
+      win._displayName = fileName;
       win._isDirty = true; // unsaved derivative — user must Save As
-      win.webContents.send('menu-open-file', { content, filePath: null, fileName });
+      win.webContents.send('menu-open-file', { content, filePath: null, fileName, isDirty: true, mode: 'preview' });
       updateWindowTitle(win);
       app.focus({ steal: true });
       win.show();
@@ -126,8 +128,9 @@ function createWindow(opts = {}) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
         win._filePath = filePath;
+        win._displayName = null;
         win._isDirty = false;
-        win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
+        win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath), mode: 'preview' });
         updateWindowTitle(win);
         app.addRecentDocument(filePath);
         app.focus({ steal: true });
@@ -168,7 +171,7 @@ function createWindow(opts = {}) {
 // ─── Window title helpers ─────────────────────────────────────────────────────
 function updateWindowTitle(win) {
   if (!win || win.isDestroyed()) return;
-  const base = win._filePath ? path.basename(win._filePath) : 'Untitled';
+  const base = win._filePath ? path.basename(win._filePath) : (win._displayName || 'Untitled');
   const dirty = win._isDirty ? ' •' : '';
   win.setTitle(`${base}${dirty} — VimDown`);
   win.setRepresentedFilename(win._filePath || '');
@@ -207,8 +210,9 @@ async function handleNewFile(win) {
   const shouldContinue = await confirmUnsavedChanges(win, 'Save changes before creating a new file?');
   if (!shouldContinue) return;
   win._filePath = null;
+  win._displayName = null;
   win._isDirty = false;
-  win.webContents.send('menu-new-file');
+  win.webContents.send('menu-new-file', { mode: 'split' });
   updateWindowTitle(win);
 }
 
@@ -237,8 +241,9 @@ async function handleOpenFile(win) {
     return;
   }
   win._filePath = filePath;
+  win._displayName = null;
   win._isDirty = false;
-  win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath) });
+  win.webContents.send('menu-open-file', { content, filePath, fileName: path.basename(filePath), mode: 'preview' });
   updateWindowTitle(win);
   app.addRecentDocument(filePath);
 }
@@ -256,6 +261,7 @@ async function handleSaveFile(win, closeAfter = false) {
       return false;
     }
     win._isDirty = false;
+    win._displayName = null;
     updateWindowTitle(win);
     win.webContents.send('file-saved', { filePath: win._filePath });
     if (closeAfter) win.close();
@@ -287,12 +293,76 @@ async function handleSaveAsFile(win, closeAfter = false) {
     return false;
   }
   win._filePath = filePath;
+  win._displayName = null;
   win._isDirty = false;
   updateWindowTitle(win);
   win.webContents.send('file-saved', { filePath });
   app.addRecentDocument(filePath);
   if (closeAfter) win.close();
   return true;
+}
+
+async function handleDuplicateFile(win) {
+  win = win || focusedWin();
+  if (!win) { createWindow(); return; }
+  const content = await getEditorContent(win);
+  if (content === null) return;
+
+  const currentName = win._filePath
+    ? path.basename(win._filePath)
+    : (win._displayName || 'Untitled.md');
+  const parsed = path.parse(currentName);
+  const duplicateName = `${parsed.name || 'Untitled'} copy${parsed.ext || '.md'}`;
+  const duplicateWin = createWindow({ initialMode: 'split' });
+
+  duplicateWin.webContents.once('did-finish-load', () => {
+    duplicateWin._filePath = null;
+    duplicateWin._displayName = duplicateName;
+    duplicateWin._isDirty = true;
+    duplicateWin.webContents.send('menu-open-file', {
+      content,
+      filePath: null,
+      fileName: duplicateName,
+      isDirty: true,
+      mode: 'split',
+    });
+    updateWindowTitle(duplicateWin);
+    duplicateWin.show();
+    duplicateWin.focus();
+  });
+}
+
+async function handleRenameFile(win, requestedName) {
+  win = win || focusedWin();
+  if (!win) throw new Error('No active document.');
+  if (!win._filePath) throw new Error('Save the document before renaming it.');
+
+  const newName = typeof requestedName === 'string' ? requestedName.trim() : '';
+  if (!newName) throw new Error('Enter a file name.');
+  if (newName === '.' || newName === '..' || path.basename(newName) !== newName) {
+    throw new Error('File names cannot include folder separators.');
+  }
+
+  const nextPath = path.join(path.dirname(win._filePath), newName);
+  if (nextPath === win._filePath) {
+    return { filePath: win._filePath, fileName: path.basename(win._filePath) };
+  }
+  if (fs.existsSync(nextPath)) {
+    throw new Error(`A file named "${newName}" already exists in this folder.`);
+  }
+
+  fs.renameSync(win._filePath, nextPath);
+  win._filePath = nextPath;
+  win._displayName = null;
+  updateWindowTitle(win);
+  app.addRecentDocument(nextPath);
+  return { filePath: nextPath, fileName: path.basename(nextPath) };
+}
+
+function handleRevealInFinder(win) {
+  win = win || focusedWin();
+  if (!win || !win._filePath) return;
+  shell.showItemInFolder(win._filePath);
 }
 
 // ─── IPC: per-window state from renderer ─────────────────────────────────────
@@ -313,10 +383,15 @@ ipcMain.handle('get-content', async (event) => {
   });
 });
 
+ipcMain.handle('rename-file', (event, newName) => {
+  return handleRenameFile(winFromEvent(event), newName);
+});
+
 ipcMain.on('set-file-path', (event, filePath) => {
   const win = winFromEvent(event);
   if (!win) return;
   win._filePath = filePath;
+  if (filePath) win._displayName = null;
   updateWindowTitle(win);
   if (filePath) app.addRecentDocument(filePath);
 });
@@ -333,6 +408,7 @@ ipcMain.on('set-dirty', (event, isDirty) => {
 ipcMain.on('toolbar-new-file',  (event) => handleNewFile(winFromEvent(event)));
 ipcMain.on('toolbar-open-file', (event) => handleOpenFile(winFromEvent(event)));
 ipcMain.on('toolbar-save-file', (event) => handleSaveFile(winFromEvent(event), false));
+ipcMain.on('toolbar-reveal-file', (event) => handleRevealInFinder(winFromEvent(event)));
 
 ipcMain.on('sync-vim-state', (_event, { enabled }) => {
   const menu = Menu.getApplicationMenu();
@@ -387,6 +463,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => handleSaveFile() },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => handleSaveAsFile() },
+        { label: 'Duplicate', click: () => handleDuplicateFile() },
         { type: 'separator' },
         ...(isMac ? [{ role: 'close' }] : [{ role: 'quit' }]),
       ],
@@ -410,6 +487,10 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
+        { label: 'Preview Only', accelerator: 'CmdOrCtrl+1', click: () => sendFocused('menu-set-view-mode', { mode: 'preview' }) },
+        { label: 'Edit Only', accelerator: 'CmdOrCtrl+2', click: () => sendFocused('menu-set-view-mode', { mode: 'edit' }) },
+        { label: 'Split View', accelerator: 'CmdOrCtrl+3', click: () => sendFocused('menu-set-view-mode', { mode: 'split' }) },
+        { type: 'separator' },
         { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+E', click: () => sendFocused('menu-toggle-editor') },
         { label: 'Toggle Preview', accelerator: 'CmdOrCtrl+\\', click: () => sendFocused('menu-toggle-preview') },
         { type: 'separator' },

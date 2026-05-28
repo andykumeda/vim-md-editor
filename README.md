@@ -11,6 +11,7 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 - **Print & PDF export** — opens a formatted print window; use "Save as PDF" in the print dialog
 - **XSS-safe preview** — HTML output is sanitized with DOMPurify before rendering
 - **Native context menu** — right-click in the editor shows Cut / Copy / Paste / Select All (desktop only)
+- **Preview-first opening** — opened Markdown files start in preview mode, with toolbar and menu controls for Preview, Edit, or Split View
 
 ---
 
@@ -19,9 +20,10 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 ### Additional desktop features
 
 - Native hidden-inset titlebar with traffic lights
-- Unsaved-changes dot in the title bar
-- Represented filename (right-click title to reveal in Finder)
+- Document title control with filename rename, saved/unsaved status, and folder reveal
+- Native represented filename metadata for macOS document/proxy behavior
 - Recent Documents in the Dock menu
+- File > Duplicate creates an unsaved copy in a new window
 - File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
 
 ### Desktop keyboard shortcuts
@@ -32,6 +34,9 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 | `⌘O` | Open file |
 | `⌘S` | Save |
 | `⌘⇧S` | Save As |
+| `⌘1` | Preview only |
+| `⌘2` | Edit only |
+| `⌘3` | Split View |
 | `⌘W` | Close window |
 | `⌘Q` | Quit |
 | `⌘\` | Toggle preview pane |

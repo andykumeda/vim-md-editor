@@ -15,7 +15,6 @@ import {
   FileDown,
   Printer,
   Keyboard,
-  PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   FileText,
@@ -35,15 +34,24 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+
+type ViewMode = "edit" | "preview" | "split";
 
 // ─── Electron bridge ──────────────────────────────────────────────────────────
 // When running in Electron, window.electronAPI is injected by the preload script.
@@ -56,11 +64,12 @@ declare global {
       setDirty: (isDirty: boolean) => void;
       syncVimState: (enabled: boolean) => void;
       syncDarkState: (dark: boolean) => void;
-      onNewFile: (cb: () => void) => void;
-      onOpenFile: (cb: (data: { content: string; filePath: string; fileName: string }) => void) => void;
+      onNewFile: (cb: (data?: { mode?: ViewMode }) => void) => void;
+      onOpenFile: (cb: (data: { content: string; filePath: string | null; fileName: string; isDirty?: boolean; mode?: ViewMode }) => void) => void;
       onFileSaved: (cb: (data: { filePath: string }) => void) => void;
       onFind: (cb: () => void) => void;
       onTogglePreview: (cb: () => void) => void;
+      onSetViewMode: (cb: (data: { mode: ViewMode }) => void) => void;
       onToggleVim: (cb: (data: { enabled: boolean }) => void) => void;
       onToggleDark: (cb: (data: { dark: boolean }) => void) => void;
       onPrint: (cb: () => void) => void;
@@ -71,6 +80,8 @@ declare global {
       openFileDialog: () => void;
       newFileAction: () => void;
       saveFileAction: () => void;
+      revealInFinder: () => void;
+      renameFile: (newName: string) => Promise<{ filePath: string; fileName: string }>;
     };
     __getEditorContent?: () => string;
   }
@@ -135,6 +146,10 @@ function getInitialDoc(): string {
   return localStorage.getItem("vimdown-content") ?? SAMPLE_MD;
 }
 
+function normalizeViewMode(mode: string | undefined): ViewMode {
+  return mode === "edit" || mode === "preview" || mode === "split" ? mode : "split";
+}
+
 const vimCompartment = new Compartment();
 const themeCompartment = new Compartment();
 
@@ -168,13 +183,17 @@ export default function EditorPage() {
   );
   const [vimEnabled, setVimEnabled] = useState(true);
   const [content, setContent] = useState(getInitialDoc);
-  const initMode = isElectron ? (window.electronAPI?.getInitMode?.() ?? "edit") : "edit";
-  const [showPreview, setShowPreview] = useState(true);
+  const initMode = normalizeViewMode(isElectron ? window.electronAPI?.getInitMode?.() : "split");
+  const [showPreview, setShowPreview] = useState(initMode !== "edit");
   const [showEditor, setShowEditor] = useState(initMode !== "preview");
   const [vimMode, setVimMode] = useState("NORMAL");
   const [lineInfo, setLineInfo] = useState({ line: 1, col: 1 });
   const [wordCount, setWordCount] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [isDocumentMenuOpen, setIsDocumentMenuOpen] = useState(false);
+  const [draftFileName, setDraftFileName] = useState("Untitled.md");
 
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -204,6 +223,27 @@ export default function EditorPage() {
     if (!showEditor && !showPreview) setShowPreview(true);
   }, [showEditor, showPreview]);
 
+  const applyViewMode = useCallback((mode: ViewMode) => {
+    if (mode === "edit") {
+      setShowEditor(true);
+      setShowPreview(false);
+      return;
+    }
+    if (mode === "preview") {
+      setShowEditor(false);
+      setShowPreview(true);
+      return;
+    }
+    setShowEditor(true);
+    setShowPreview(true);
+  }, []);
+
+  const currentViewMode: ViewMode = showEditor && showPreview
+    ? "split"
+    : showEditor
+      ? "edit"
+      : "preview";
+
   // ─── Expose editor content to Electron main process ─────────────────────────
   useEffect(() => {
     window.__getEditorContent = () => viewRef.current?.state.doc.toString() ?? "";
@@ -221,6 +261,7 @@ export default function EditorPage() {
         const dirty = doc !== initialContentRef.current;
         if (dirty !== isDirtyRef.current) {
           isDirtyRef.current = dirty;
+          setIsDirty(dirty);
           window.electronAPI?.setDirty(dirty);
         }
       }
@@ -291,40 +332,53 @@ export default function EditorPage() {
   }, [darkMode]);
 
   // ─── Helper: load content into editor ───────────────────────────────────────
-  const loadContent = useCallback((text: string, name: string | null, filePath?: string) => {
+  const loadContent = useCallback((
+    text: string,
+    name: string | null,
+    nextFilePath?: string | null,
+    options: { isDirty?: boolean; mode?: ViewMode } = {},
+  ) => {
     if (viewRef.current) {
       viewRef.current.dispatch({
         changes: { from: 0, to: viewRef.current.state.doc.length, insert: text },
       });
     }
+    const dirty = options.isDirty ?? false;
     setContent(text);
     setFileName(name);
-    initialContentRef.current = text;
-    isDirtyRef.current = false;
+    setFilePath(nextFilePath ?? null);
+    setDraftFileName(name ?? "Untitled.md");
+    initialContentRef.current = dirty ? "" : text;
+    isDirtyRef.current = dirty;
+    setIsDirty(dirty);
     fileHandleRef.current = null;
-    window.electronAPI?.setDirty(false);
-    if (filePath) window.electronAPI?.setFilePath(filePath);
+    window.electronAPI?.setDirty(dirty);
+    if (nextFilePath) window.electronAPI?.setFilePath(nextFilePath);
     else window.electronAPI?.setFilePath(null);
-  }, []);
+    if (options.mode) applyViewMode(options.mode);
+  }, [applyViewMode]);
 
   // ─── Electron IPC listeners ──────────────────────────────────────────────────
   useEffect(() => {
     if (!isElectron) return;
     const api = window.electronAPI!;
 
-    api.onNewFile(() => {
-      loadContent("", null);
+    api.onNewFile((data) => {
+      loadContent("", null, null, { mode: data?.mode ?? "split" });
     });
 
-    api.onOpenFile(({ content: text, fileName: name, filePath }) => {
-      loadContent(text, name, filePath);
+    api.onOpenFile(({ content: text, fileName: name, filePath, isDirty, mode }) => {
+      loadContent(text, name, filePath, { isDirty, mode });
     });
 
     api.onFileSaved(({ filePath }) => {
       const name = filePath.split("/").pop() ?? filePath;
       setFileName(name);
+      setFilePath(filePath);
+      setDraftFileName(name);
       initialContentRef.current = viewRef.current?.state.doc.toString() ?? "";
       isDirtyRef.current = false;
+      setIsDirty(false);
     });
 
     api.onFind(() => {
@@ -333,6 +387,7 @@ export default function EditorPage() {
 
     api.onTogglePreview(() => setShowPreview((p) => !p));
     api.onToggleEditor(() => setShowEditor((e) => !e));
+    api.onSetViewMode(({ mode }) => applyViewMode(mode));
     api.onToggleVim(({ enabled }) => setVimEnabled(enabled));
     api.onToggleDark(({ dark }) => setDarkMode(dark));
     api.onPrint(() => handlePrint());
@@ -340,10 +395,10 @@ export default function EditorPage() {
 
     return () => {
       ["menu-new-file", "menu-open-file", "file-saved", "menu-find",
-       "menu-toggle-preview", "menu-toggle-editor", "menu-toggle-vim",
+       "menu-toggle-preview", "menu-toggle-editor", "menu-set-view-mode", "menu-toggle-vim",
        "menu-toggle-dark", "menu-print", "menu-export-pdf"].forEach((ch) => api.removeAllListeners(ch));
     };
-  }, [loadContent]);
+  }, [applyViewMode, loadContent]);
 
   // ─── Print ──────────────────────────────────────────────────────────────────
   const printStyles = `
@@ -421,7 +476,7 @@ export default function EditorPage() {
         });
         fileHandleRef.current = handle;
         const file = await handle.getFile();
-        loadContent(await file.text(), file.name);
+        loadContent(await file.text(), file.name, null, { mode: "preview" });
       } catch { /* cancelled */ }
     } else {
       fileInputRef.current?.click();
@@ -433,7 +488,7 @@ export default function EditorPage() {
     if (!file) return;
     fileHandleRef.current = null;
     const reader = new FileReader();
-    reader.onload = (evt) => loadContent(evt.target?.result as string, file.name);
+    reader.onload = (evt) => loadContent(evt.target?.result as string, file.name, null, { mode: "preview" });
     reader.readAsText(file);
     e.target.value = "";
   }, [loadContent]);
@@ -445,7 +500,7 @@ export default function EditorPage() {
     }
     if (!confirmReplaceDocument("Discard unsaved changes and create a new file?")) return;
     fileHandleRef.current = null;
-    loadContent("", null);
+    loadContent("", null, null, { mode: "split" });
   }, [confirmReplaceDocument, loadContent]);
 
   const handleSaveFile = useCallback(async () => {
@@ -464,12 +519,14 @@ export default function EditorPage() {
           });
           fileHandleRef.current = handle;
           setFileName((handle as FileSystemFileHandle).name);
+          setDraftFileName((handle as FileSystemFileHandle).name);
         }
         const writable = await (handle as any).createWritable();
         await writable.write(text);
         await writable.close();
         initialContentRef.current = text;
         isDirtyRef.current = false;
+        setIsDirty(false);
         window.electronAPI?.setDirty(false);
       } catch (error) {
         if (!(error instanceof DOMException) || error.name !== "AbortError") {
@@ -574,6 +631,44 @@ export default function EditorPage() {
     return () => clearTimeout(timer);
   }, [content]);
 
+  useEffect(() => {
+    if (isDocumentMenuOpen) setDraftFileName(fileName ?? "Untitled.md");
+  }, [fileName, isDocumentMenuOpen]);
+
+  const folderPath = filePath ? filePath.split("/").slice(0, -1).join("/") || "/" : null;
+  const canRenameDocument = isElectron && !!filePath;
+  const saveStatusLabel = !filePath ? "Not saved" : isDirty ? "Unsaved" : "Saved";
+  const saveStatusClass = !filePath
+    ? "text-muted-foreground"
+    : isDirty
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-primary";
+
+  const handleRenameDocument = useCallback(async () => {
+    if (!canRenameDocument) return;
+    const nextName = draftFileName.trim();
+    if (!nextName || nextName === fileName) {
+      setIsDocumentMenuOpen(false);
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI?.renameFile(nextName);
+      if (!result) return;
+      setFileName(result.fileName);
+      setFilePath(result.filePath);
+      setDraftFileName(result.fileName);
+      setIsDocumentMenuOpen(false);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error));
+    }
+  }, [canRenameDocument, draftFileName, fileName]);
+
+  const handleRevealInFinder = useCallback(() => {
+    window.electronAPI?.revealInFinder?.();
+    setIsDocumentMenuOpen(false);
+  }, []);
+
   // ─── Top padding for macOS traffic lights ───────────────────────────────────
   // hiddenInset titlebar makes the toolbar sit under the traffic light area
   const toolbarStyle: WebkitAppRegionStyle = isElectron
@@ -586,12 +681,12 @@ export default function EditorPage() {
     <div className="flex flex-col h-screen bg-background text-foreground no-print">
       {/* Toolbar */}
       <header
-        className="flex items-center justify-between h-11 px-3 border-b border-border bg-card shrink-0"
+        className="grid grid-cols-[minmax(0,1fr)_minmax(160px,360px)_minmax(0,1fr)] items-center h-11 px-3 border-b border-border bg-card shrink-0"
         style={toolbarDragStyle}
         data-testid="toolbar"
       >
         {/* Left: Document Actions (Persistence + Output) */}
-        <div className="flex items-center gap-1" style={toolbarNoDragStyle}>
+        <div className="flex items-center gap-1 min-w-0 justify-self-start" style={toolbarNoDragStyle}>
           <div className="flex items-center gap-1.5 mr-2">
             <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-label="VimDown">
               {/* Document body */}
@@ -664,8 +759,82 @@ export default function EditorPage() {
           </div>
         </div>
 
+        {/* Center: Document title and location */}
+        <div className="justify-self-center min-w-0 max-w-full" style={toolbarNoDragStyle}>
+          <Popover open={isDocumentMenuOpen} onOpenChange={setIsDocumentMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="h-8 max-w-[min(360px,42vw)] min-w-0 inline-flex items-center gap-1 rounded-md px-2 text-sm font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                data-testid="document-title"
+              >
+                <span className="truncate">{fileName ?? "Untitled"}</span>
+                <span className={saveStatusClass} aria-label={saveStatusLabel}>•</span>
+                <span className={`hidden sm:inline text-[11px] font-normal ${saveStatusClass}`}>
+                  {saveStatusLabel}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 space-y-3" align="center">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground" htmlFor="document-name">
+                  Name
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id="document-name"
+                    value={draftFileName}
+                    disabled={!canRenameDocument}
+                    onChange={(event) => setDraftFileName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleRenameDocument();
+                    }}
+                    data-testid="document-name-input"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!canRenameDocument || draftFileName.trim() === fileName}
+                    onClick={handleRenameDocument}
+                    data-testid="document-rename"
+                  >
+                    Rename
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between rounded-md border border-border bg-background px-2 py-2 text-xs">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className={`font-medium ${saveStatusClass}`}>{saveStatusLabel}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-xs font-medium text-muted-foreground">Where</div>
+                {folderPath ? (
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={handleRevealInFinder}
+                    data-testid="document-location"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate" title={folderPath}>{folderPath}</span>
+                  </button>
+                ) : (
+                  <div className="rounded-md border border-border bg-background px-2 py-2 text-xs text-muted-foreground">
+                    Not saved yet
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+
         {/* Right: Workspace & View Actions */}
-        <div className="flex items-center gap-1" style={toolbarNoDragStyle}>
+        <div className="flex items-center gap-1 justify-self-end" style={toolbarNoDragStyle}>
           {/* Group 3: Editor Mode */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -686,20 +855,50 @@ export default function EditorPage() {
           <div className="w-px h-5 bg-border mx-1" />
 
           {/* Group 4: Layout */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setShowPreview((p) => !p)}
-                data-testid="toggle-preview"
-              >
-                {showPreview ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{showPreview ? "Hide preview" : "Show preview"}{isElectron ? " (⌘\\)" : ""}</TooltipContent>
-          </Tooltip>
+          <div className="flex items-center rounded-md border border-border bg-background/60 p-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={currentViewMode === "preview" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => applyViewMode("preview")}
+                  data-testid="mode-preview"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Preview only{isElectron ? " (⌘1)" : ""}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={currentViewMode === "edit" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => applyViewMode("edit")}
+                  data-testid="mode-edit"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit only{isElectron ? " (⌘2)" : ""}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={currentViewMode === "split" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => applyViewMode("split")}
+                  data-testid="mode-split"
+                >
+                  <PanelLeftOpen className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Split view{isElectron ? " (⌘3)" : ""}</TooltipContent>
+            </Tooltip>
+          </div>
 
           <div className="w-px h-5 bg-border mx-1" />
 
@@ -912,6 +1111,7 @@ export default function EditorPage() {
         </div>
         <div className="flex items-center gap-3">
           {fileName && <span className="font-mono truncate max-w-[220px]" title={fileName}>{fileName}</span>}
+          <span className={`font-mono ${saveStatusClass}`}>{saveStatusLabel}</span>
           <span>{wordCount} words</span>
           <span>Markdown</span>
           <span>UTF-8</span>
