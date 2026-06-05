@@ -69,6 +69,12 @@ Starts Vite on port 5173, then launches Electron against it. Hot-reload is activ
 
 ### Building the macOS app
 
+> **Every change ships the same way.** Whenever you make a change and rebuild,
+> the build is not finished until the new `VimDown.app` has been moved into
+> `/Applications/VimDown.app`. Installing into `/Applications` is the final,
+> required step of every change-and-build cycle — otherwise you keep running
+> the previously installed version.
+
 Before building a releasable app, bump the package version so macOS and
 LaunchServices see a new app version:
 
@@ -88,9 +94,15 @@ npm run electron:build:x64        # Intel package only
 npm run electron:build:universal  # Both architectures package only
 ```
 
-The production build copies the newest matching `VimDown.app` bundle from
+`npm run build` is the complete cycle: it builds the app and then performs the
+final move into `/Applications`. The `electron:build*` commands only package
+the app into `release/` — they do **not** install it, so you must finish the
+cycle yourself by running the install step below.
+
+The install step copies the newest matching `VimDown.app` bundle from
 `release/` to `/Applications/VimDown.app` and registers it with LaunchServices.
-If VimDown is running, quit it and rerun:
+Always run it as the last step after a package-only build, and rerun it if
+VimDown was running during the copy (quit VimDown first):
 
 ```bash
 npm run install:mac
