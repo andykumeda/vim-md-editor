@@ -204,6 +204,8 @@ export default function EditorPage() {
   const viewRef = useRef<EditorView | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentNameRef = useRef<HTMLInputElement>(null);
+  const skipDocumentNameBlurRef = useRef(false);
   const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const isDragging = useRef(false);
   const [splitPercent, setSplitPercent] = useState(50);
@@ -697,8 +699,19 @@ export default function EditorPage() {
   }, [content]);
 
   useEffect(() => {
-    if (isDocumentMenuOpen) setDraftFileName(fileName ?? "Untitled.md");
-  }, [fileName, isDocumentMenuOpen]);
+    if (!isDocumentMenuOpen) return;
+    const name = fileName ?? "Untitled.md";
+    setDraftFileName(name);
+    if (!(isElectron && filePath)) return;
+    // Native-style: focus the field and select the base name (excluding extension).
+    requestAnimationFrame(() => {
+      const input = documentNameRef.current;
+      if (!input) return;
+      input.focus();
+      const dot = name.lastIndexOf(".");
+      input.setSelectionRange(0, dot > 0 ? dot : name.length);
+    });
+  }, [fileName, isDocumentMenuOpen, filePath]);
 
   const folderPath = filePath ? filePath.split("/").slice(0, -1).join("/") || "/" : null;
   const canRenameDocument = isElectron && !!filePath;
@@ -710,22 +723,37 @@ export default function EditorPage() {
       : "text-primary";
 
   const handleRenameDocument = useCallback(async () => {
+    if (skipDocumentNameBlurRef.current) {
+      skipDocumentNameBlurRef.current = false;
+      setDraftFileName(fileName ?? "Untitled.md");
+      setIsDocumentMenuOpen(false);
+      return;
+    }
     if (!canRenameDocument) return;
     const nextName = draftFileName.trim();
-    if (!nextName || nextName === fileName) {
+    if (!nextName) {
+      setDraftFileName(fileName ?? "Untitled.md");
+      return;
+    }
+    if (nextName === fileName) {
       setIsDocumentMenuOpen(false);
       return;
     }
 
     try {
       const result = await window.electronAPI?.renameFile(nextName);
-      if (!result) return;
+      if (!result) {
+        // Rename declined (e.g. user chose not to replace an existing file).
+        setDraftFileName(fileName ?? "Untitled.md");
+        return;
+      }
       setFileName(result.fileName);
       setFilePath(result.filePath);
       setDraftFileName(result.fileName);
       setIsDocumentMenuOpen(false);
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error));
+      setDraftFileName(fileName ?? "Untitled.md");
     }
   }, [canRenameDocument, draftFileName, fileName]);
 
@@ -859,27 +887,25 @@ export default function EditorPage() {
                 <label className="text-xs font-medium text-muted-foreground" htmlFor="document-name">
                   Name
                 </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="document-name"
-                    value={draftFileName}
-                    disabled={!canRenameDocument}
-                    onChange={(event) => setDraftFileName(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") handleRenameDocument();
-                    }}
-                    data-testid="document-name-input"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canRenameDocument || draftFileName.trim() === fileName}
-                    onClick={handleRenameDocument}
-                    data-testid="document-rename"
-                  >
-                    Rename
-                  </Button>
-                </div>
+                <Input
+                  id="document-name"
+                  ref={documentNameRef}
+                  value={draftFileName}
+                  disabled={!canRenameDocument}
+                  onChange={(event) => setDraftFileName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    } else if (event.key === "Escape") {
+                      skipDocumentNameBlurRef.current = true;
+                      setDraftFileName(fileName ?? "Untitled.md");
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={handleRenameDocument}
+                  data-testid="document-name-input"
+                />
               </div>
 
               <div className="space-y-1.5">

@@ -334,9 +334,18 @@ async function handleDuplicateFile(win) {
 
 // Move/rename the window's file on disk to nextPath, updating window state.
 // Handles cross-volume moves (renameSync throws EXDEV across devices).
-function relocateFile(win, nextPath) {
+// Returns null if the user declines to replace an existing file.
+async function relocateFile(win, nextPath) {
   if (fs.existsSync(nextPath)) {
-    throw new Error(`A file named "${path.basename(nextPath)}" already exists in this folder.`);
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Replace', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `“${path.basename(nextPath)}” already exists. Do you want to replace it?`,
+      detail: 'A file with the same name already exists in this folder. Replacing it will overwrite its current contents.',
+    });
+    if (response !== 0) return null;
   }
   try {
     fs.renameSync(win._filePath, nextPath);
