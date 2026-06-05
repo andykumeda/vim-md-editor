@@ -67,6 +67,7 @@ declare global {
       onNewFile: (cb: (data?: { mode?: ViewMode }) => void) => void;
       onOpenFile: (cb: (data: { content: string; filePath: string | null; fileName: string; isDirty?: boolean; mode?: ViewMode }) => void) => void;
       onFileSaved: (cb: (data: { filePath: string }) => void) => void;
+      onFileLocationChanged: (cb: (data: { filePath: string; fileName: string }) => void) => void;
       onFind: (cb: () => void) => void;
       onTogglePreview: (cb: () => void) => void;
       onSetViewMode: (cb: (data: { mode: ViewMode }) => void) => void;
@@ -82,6 +83,7 @@ declare global {
       saveFileAction: () => void;
       revealInFinder: () => void;
       renameFile: (newName: string) => Promise<{ filePath: string; fileName: string }>;
+      moveFile: () => Promise<{ filePath: string; fileName: string } | null>;
       saveFile: () => Promise<boolean>;
       saveAndCloseFile: () => Promise<boolean>;
       closeWindow: (force?: boolean) => Promise<boolean>;
@@ -388,6 +390,12 @@ export default function EditorPage() {
       setIsDirty(false);
     });
 
+    api.onFileLocationChanged(({ filePath, fileName }) => {
+      setFileName(fileName);
+      setFilePath(filePath);
+      setDraftFileName(fileName);
+    });
+
     api.onFind(() => {
       if (viewRef.current) openSearchPanel(viewRef.current);
     });
@@ -401,7 +409,7 @@ export default function EditorPage() {
     api.onExportPdf(() => handleExportPDF());
 
     return () => {
-      ["menu-new-file", "menu-open-file", "file-saved", "menu-find",
+      ["menu-new-file", "menu-open-file", "file-saved", "file-location-changed", "menu-find",
        "menu-toggle-preview", "menu-toggle-editor", "menu-set-view-mode", "menu-toggle-vim",
        "menu-toggle-dark", "menu-print", "menu-export-pdf"].forEach((ch) => api.removeAllListeners(ch));
     };
@@ -721,6 +729,19 @@ export default function EditorPage() {
     }
   }, [canRenameDocument, draftFileName, fileName]);
 
+  const handleMoveDocument = useCallback(async () => {
+    if (!canRenameDocument) return;
+    try {
+      const result = await window.electronAPI?.moveFile();
+      if (!result) return;
+      setFileName(result.fileName);
+      setFilePath(result.filePath);
+      setDraftFileName(result.fileName);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error));
+    }
+  }, [canRenameDocument]);
+
   const handleRevealInFinder = useCallback(() => {
     window.electronAPI?.revealInFinder?.();
     setIsDocumentMenuOpen(false);
@@ -871,15 +892,28 @@ export default function EditorPage() {
               <div className="space-y-1.5">
                 <div className="text-xs font-medium text-muted-foreground">Where</div>
                 {folderPath ? (
-                  <button
-                    type="button"
-                    className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    onClick={handleRevealInFinder}
-                    data-testid="document-location"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate" title={folderPath}>{folderPath}</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2 py-2 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleMoveDocument}
+                      disabled={!canRenameDocument}
+                      title="Move to another folder…"
+                      data-testid="document-location"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate" title={folderPath}>{folderPath}</span>
+                      <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+                      onClick={handleRevealInFinder}
+                      data-testid="document-reveal"
+                    >
+                      Reveal in Finder
+                    </button>
+                  </>
                 ) : (
                   <div className="rounded-md border border-border bg-background px-2 py-2 text-xs text-muted-foreground">
                     Not saved yet

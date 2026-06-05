@@ -332,6 +332,29 @@ async function handleDuplicateFile(win) {
   });
 }
 
+// Move/rename the window's file on disk to nextPath, updating window state.
+// Handles cross-volume moves (renameSync throws EXDEV across devices).
+function relocateFile(win, nextPath) {
+  if (fs.existsSync(nextPath)) {
+    throw new Error(`A file named "${path.basename(nextPath)}" already exists in this folder.`);
+  }
+  try {
+    fs.renameSync(win._filePath, nextPath);
+  } catch (e) {
+    if (e && e.code === 'EXDEV') {
+      fs.copyFileSync(win._filePath, nextPath);
+      fs.unlinkSync(win._filePath);
+    } else {
+      throw e;
+    }
+  }
+  win._filePath = nextPath;
+  win._displayName = null;
+  updateWindowTitle(win);
+  app.addRecentDocument(nextPath);
+  return { filePath: nextPath, fileName: path.basename(nextPath) };
+}
+
 async function handleRenameFile(win, requestedName) {
   win = win || focusedWin();
   if (!win) throw new Error('No active document.');
@@ -347,16 +370,43 @@ async function handleRenameFile(win, requestedName) {
   if (nextPath === win._filePath) {
     return { filePath: win._filePath, fileName: path.basename(win._filePath) };
   }
-  if (fs.existsSync(nextPath)) {
-    throw new Error(`A file named "${newName}" already exists in this folder.`);
-  }
+  return relocateFile(win, nextPath);
+}
 
-  fs.renameSync(win._filePath, nextPath);
-  win._filePath = nextPath;
-  win._displayName = null;
-  updateWindowTitle(win);
-  app.addRecentDocument(nextPath);
-  return { filePath: nextPath, fileName: path.basename(nextPath) };
+async function handleMoveFile(win) {
+  win = win || focusedWin();
+  if (!win) throw new Error('No active document.');
+  if (!win._filePath) throw new Error('Save the document before moving it.');
+
+  const currentDir = path.dirname(win._filePath);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Move To',
+    message: 'Choose a destination folder',
+    defaultPath: currentDir,
+    buttonLabel: 'Move',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (canceled || !filePaths.length) return null;
+
+  const targetDir = filePaths[0];
+  if (targetDir === currentDir) {
+    return { filePath: win._filePath, fileName: path.basename(win._filePath) };
+  }
+  const nextPath = path.join(targetDir, path.basename(win._filePath));
+  return relocateFile(win, nextPath);
+}
+
+async function handleMoveFileFromMenu(win) {
+  const target = win || focusedWin();
+  try {
+    const result = await handleMoveFile(target);
+    if (result && target && !target.isDestroyed()) {
+      target.webContents.send('file-location-changed', result);
+    }
+  } catch (e) {
+    const message = e && e.message ? String(e.message) : String(e);
+    dialog.showErrorBox('Error moving file', message);
+  }
 }
 
 function handleRevealInFinder(win) {
@@ -397,6 +447,10 @@ ipcMain.handle('get-content', async (event) => {
 
 ipcMain.handle('rename-file', (event, newName) => {
   return handleRenameFile(winFromEvent(event), newName);
+});
+
+ipcMain.handle('move-file', (event) => {
+  return handleMoveFile(winFromEvent(event));
 });
 
 ipcMain.handle('save-file', (event) => {
@@ -487,6 +541,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => handleSaveFile() },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => handleSaveAsFile() },
+        { label: 'Move To…', click: () => handleMoveFileFromMenu() },
         { label: 'Duplicate', click: () => handleDuplicateFile() },
         { type: 'separator' },
         ...(isMac ? [{ role: 'close' }] : [{ role: 'quit' }]),

@@ -21,10 +21,10 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 ### Additional desktop features
 
 - Native hidden-inset titlebar with traffic lights
-- Document title control with filename rename, saved/unsaved status, and folder reveal
+- Document title control with filename rename, saved/unsaved status, folder move, and folder reveal
 - Native represented filename metadata for macOS document/proxy behavior
 - Recent Documents in the Dock menu
-- File > Duplicate creates an unsaved copy in a new window
+- File > Move To… relocates the current saved document; File > Duplicate creates an unsaved copy in a new window
 - File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
 
 ### Desktop keyboard shortcuts
