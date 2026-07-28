@@ -6,18 +6,18 @@
         <description>Updates for VimDown, a Vim-keybinding Markdown editor for macOS.</description>
         <language>en</language>
         <item>
-            <title>VimDown 1.0.6</title>
-            <pubDate>Tue, 28 Jul 2026 02:38:04 GMT</pubDate>
-            <sparkle:version>1.0.6</sparkle:version>
-            <sparkle:shortVersionString>1.0.6</sparkle:shortVersionString>
+            <title>VimDown 1.0.7</title>
+            <pubDate>Tue, 28 Jul 2026 16:21:16 GMT</pubDate>
+            <sparkle:version>1.0.7</sparkle:version>
+            <sparkle:shortVersionString>1.0.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
                 <p>See the GitHub release page for this version's changes.</p>
             ]]></description>
             <enclosure
-                url="https://github.com/andykumeda/vim-md-editor/releases/download/v1.0.6/VimDown-1.0.6-arm64.dmg"
-                sparkle:edSignature="JmV+/Ajo4TBGeBSCDbT9y78J6JwlvWLUjLM7BoMlHLSAJcr7q8qfGKt9Hne0QtXOTvPXjRXnRd/PIO4aRJ+hDA=="
-                length="150264195"
+                url="https://github.com/andykumeda/vim-md-editor/releases/download/v1.0.7/VimDown-1.0.7-arm64.dmg"
+                sparkle:edSignature="WRaOFew8F5H75ANnufsko4e5icwtDRINLhoemq+SjPVSLMkP4naIOAZ7dhHcJVptX9o/xADsfs5dquuocSTaBg=="
+                length="150265801"
                 type="application/octet-stream" />
         </item>
     </channel>
