@@ -100,6 +100,7 @@ const sparklePath = path.join(appPath, "Contents", "Frameworks", "Sparkle.framew
 if (!fs.existsSync(updaterPath) || !fs.existsSync(sparklePath)) {
   throw new Error("The packaged app is missing the Sparkle updater.");
 }
+run("codesign", ["--verify", "--deep", "--strict", "--verbose=4", appPath]);
 run("codesign", ["--display", "--requirements", "-", appPath]);
 run(path.join(appPath, "Contents", "MacOS", "VimDown"), ["--version"], {
   ...process.env,

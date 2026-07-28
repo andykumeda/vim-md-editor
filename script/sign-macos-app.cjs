@@ -99,8 +99,16 @@ exports.default = async function signMacApp(context) {
 
   const requirement =
     `=designated => identifier "com.kumeda.vimdown" and certificate leaf = H"${identity}"`;
+
+  // Let codesign derive each nested component's designated requirement from its
+  // own bundle identifier. Applying the outer app's requirement with --deep
+  // makes every helper/framework fail strict validation in Sparkle.
   sign(identity, appPath, [
     '--deep',
+    '--entitlements',
+    path.resolve('electron', 'vimdown.entitlements'),
+  ]);
+  sign(identity, appPath, [
     '--entitlements',
     path.resolve('electron', 'vimdown.entitlements'),
     '--requirements',

@@ -48,8 +48,10 @@ npm run release:mac
 ```
 
 `release:mac` compiles the Sparkle helper, builds the Electron app, embeds and
-signs the framework, creates the DMG, signs the DMG with Sparkle, and rewrites
-`docs/appcast.xml`.
+signs the framework, verifies the complete app bundle with macOS strict nested
+code-signing checks, creates the DMG, signs the DMG with Sparkle, and rewrites
+`docs/appcast.xml`. A failed code-signing check stops the release before an
+invalid updater package can be published.
 
 Commit the version bump and updated appcast, merge to `main`, then tag and
 publish the matching DMG:
