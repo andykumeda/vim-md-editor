@@ -82,7 +82,7 @@ declare global {
       newFileAction: () => void;
       saveFileAction: () => void;
       revealInFinder: () => void;
-      renameFile: (newName: string) => Promise<{ filePath: string; fileName: string }>;
+      renameFile: (newName: string) => Promise<{ filePath: string; fileName: string } | null>;
       moveFile: () => Promise<{ filePath: string; fileName: string } | null>;
       saveFile: () => Promise<boolean>;
       saveAndCloseFile: () => Promise<boolean>;
@@ -205,6 +205,7 @@ export default function EditorPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const documentNameRef = useRef<HTMLInputElement>(null);
+  const documentMenuContentRef = useRef<HTMLDivElement>(null);
   const skipDocumentNameBlurRef = useRef(false);
   const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
   const isDragging = useRef(false);
@@ -882,7 +883,7 @@ export default function EditorPage() {
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 space-y-3" align="center">
+            <PopoverContent ref={documentMenuContentRef} className="w-80 space-y-3" align="center">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground" htmlFor="document-name">
                   Name
@@ -903,7 +904,16 @@ export default function EditorPage() {
                       event.currentTarget.blur();
                     }
                   }}
-                  onBlur={handleRenameDocument}
+                  onBlur={(event) => {
+                    const nextTarget = event.relatedTarget;
+                    if (
+                      nextTarget instanceof Node &&
+                      documentMenuContentRef.current?.contains(nextTarget)
+                    ) {
+                      return;
+                    }
+                    void handleRenameDocument();
+                  }}
                   data-testid="document-name-input"
                 />
               </div>

@@ -14,6 +14,7 @@ let pendingFileToOpen = null;
 let pendingFileToConvert = null;
 // Result of a markitdown conversion, to load into the next window that opens
 let pendingConvertedDoc = null;
+let updaterProcess = null;
 
 // Extensions that should route through markitdown rather than open as text
 const NON_MD_EXTS = new Set([
@@ -35,6 +36,43 @@ function focusedWin() {
 
 function winFromEvent(event) {
   return BrowserWindow.fromWebContents(event.sender);
+}
+
+// ─── Updates ──────────────────────────────────────────────────────────────────
+async function checkForUpdates() {
+  if (isDev) {
+    await dialog.showMessageBox(focusedWin(), {
+      type: 'info',
+      message: 'Update checks are available in packaged builds.',
+      detail: 'Install a released version of VimDown to check for updates.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  if (!updaterProcess || updaterProcess.killed) {
+    startUpdater(true);
+  } else {
+    updaterProcess.kill('SIGUSR1');
+  }
+}
+
+function startUpdater(checkImmediately = false) {
+  if (isDev || process.platform !== 'darwin' || updaterProcess) return;
+
+  const helperPath = path.join(process.resourcesPath, 'VimDownUpdater');
+  const hostBundlePath = path.resolve(process.execPath, '..', '..', '..');
+  const args = checkImmediately ? [hostBundlePath, '--check'] : [hostBundlePath];
+  updaterProcess = spawn(helperPath, args, {
+    stdio: 'ignore',
+  });
+  updaterProcess.on('error', (error) => {
+    console.error('Unable to start the VimDown updater:', error);
+    updaterProcess = null;
+  });
+  updaterProcess.on('exit', () => {
+    updaterProcess = null;
+  });
 }
 
 // ─── Window creation ──────────────────────────────────────────────────────────
@@ -525,6 +563,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { label: 'Check for Updates…', click: () => checkForUpdates() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -807,6 +846,7 @@ function applyCSP() {
 app.whenReady().then(() => {
   applyCSP();
   buildMenu();
+  startUpdater();
 
   // Cold launch: a non-md file was queued for conversion before app was ready
   if (pendingFileToConvert) {
@@ -833,4 +873,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (updaterProcess && !updaterProcess.killed) {
+    updaterProcess.kill('SIGTERM');
+  }
 });

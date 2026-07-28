@@ -25,7 +25,19 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 - Native represented filename metadata for macOS document/proxy behavior
 - Recent Documents in the Dock menu
 - File > Move To… relocates the current saved document; File > Duplicate creates an unsaved copy in a new window
+- Sparkle updates — daily automatic checks plus VimDown > Check for Updates…
 - File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
+
+### Installing on a MacBook
+
+Download the latest Apple Silicon DMG from
+[GitHub Releases](https://github.com/andykumeda/vim-md-editor/releases/latest),
+open it, and drag VimDown into Applications. On the first launch, right-click
+VimDown and choose **Open**. After that, VimDown checks for signed updates once
+a day; use **VimDown → Check for Updates…** to check immediately.
+
+See [docs/UPDATING.md](docs/UPDATING.md) for installation, troubleshooting,
+and release instructions.
 
 ### Desktop keyboard shortcuts
 
@@ -92,6 +104,7 @@ npm run build                     # Apple Silicon production build, then install
 npm run electron:build            # Apple Silicon package only → release/VimDown-${version}-arm64.dmg
 npm run electron:build:x64        # Intel package only
 npm run electron:build:universal  # Both architectures package only
+npm run release:mac               # Signed Apple Silicon DMG + Sparkle appcast
 ```
 
 `npm run build` is the complete cycle: it builds the app and then performs the
@@ -115,7 +128,10 @@ launch VimDown once or register it manually:
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/VimDown.app
 ```
 
-> The app is not code-signed. On first launch: right-click → Open, or System Settings → Privacy & Security → Open Anyway.
+Official releases use a stable self-signed identity and Sparkle EdDSA
+signatures, but are not yet notarized with an Apple Developer ID. On first
+launch: right-click → Open, or use System Settings → Privacy & Security → Open
+Anyway.
 
 ---
 
@@ -204,6 +220,9 @@ client/src/
 electron/
   main.cjs           Electron main process — window, native menus, file I/O
   preload.cjs        Context bridge exposing a typed IPC API to the renderer
+
+macos-updater/
+  Sources/            Native Sparkle updater helper
 
 server/
   index.ts           Express entry point (serves static build in production)
