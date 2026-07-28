@@ -101,6 +101,8 @@ exports.default = async function signMacApp(context) {
     `=designated => identifier "com.kumeda.vimdown" and certificate leaf = H"${identity}"`;
   sign(identity, appPath, [
     '--deep',
+    '--entitlements',
+    path.resolve('electron', 'vimdown.entitlements'),
     '--requirements',
     requirement,
   ]);

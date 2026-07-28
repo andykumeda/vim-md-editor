@@ -101,6 +101,10 @@ if (!fs.existsSync(updaterPath) || !fs.existsSync(sparklePath)) {
   throw new Error("The packaged app is missing the Sparkle updater.");
 }
 run("codesign", ["--display", "--requirements", "-", appPath]);
+run(path.join(appPath, "Contents", "MacOS", "VimDown"), ["--version"], {
+  ...process.env,
+  ELECTRON_RUN_AS_NODE: "1",
+});
 
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf-8"));
 const version = String(packageJson.version);
