@@ -14,6 +14,7 @@ let pendingFileToOpen = null;
 let pendingFileToConvert = null;
 // Result of a markitdown conversion, to load into the next window that opens
 let pendingConvertedDoc = null;
+let updaterProcess = null;
 
 // Extensions that should route through markitdown rather than open as text
 const NON_MD_EXTS = new Set([
@@ -35,6 +36,43 @@ function focusedWin() {
 
 function winFromEvent(event) {
   return BrowserWindow.fromWebContents(event.sender);
+}
+
+// ─── Updates ──────────────────────────────────────────────────────────────────
+async function checkForUpdates() {
+  if (isDev) {
+    await dialog.showMessageBox(focusedWin(), {
+      type: 'info',
+      message: 'Update checks are available in packaged builds.',
+      detail: 'Install a released version of VimDown to check for updates.',
+      buttons: ['OK'],
+    });
+    return;
+  }
+
+  if (!updaterProcess || updaterProcess.killed) {
+    startUpdater(true);
+  } else {
+    updaterProcess.kill('SIGUSR1');
+  }
+}
+
+function startUpdater(checkImmediately = false) {
+  if (isDev || process.platform !== 'darwin' || updaterProcess) return;
+
+  const helperPath = path.join(process.resourcesPath, 'VimDownUpdater');
+  const hostBundlePath = path.resolve(process.execPath, '..', '..', '..');
+  const args = checkImmediately ? [hostBundlePath, '--check'] : [hostBundlePath];
+  updaterProcess = spawn(helperPath, args, {
+    stdio: 'ignore',
+  });
+  updaterProcess.on('error', (error) => {
+    console.error('Unable to start the VimDown updater:', error);
+    updaterProcess = null;
+  });
+  updaterProcess.on('exit', () => {
+    updaterProcess = null;
+  });
 }
 
 // ─── Window creation ──────────────────────────────────────────────────────────
@@ -332,6 +370,38 @@ async function handleDuplicateFile(win) {
   });
 }
 
+// Move/rename the window's file on disk to nextPath, updating window state.
+// Handles cross-volume moves (renameSync throws EXDEV across devices).
+// Returns null if the user declines to replace an existing file.
+async function relocateFile(win, nextPath) {
+  if (fs.existsSync(nextPath)) {
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Replace', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `“${path.basename(nextPath)}” already exists. Do you want to replace it?`,
+      detail: 'A file with the same name already exists in this folder. Replacing it will overwrite its current contents.',
+    });
+    if (response !== 0) return null;
+  }
+  try {
+    fs.renameSync(win._filePath, nextPath);
+  } catch (e) {
+    if (e && e.code === 'EXDEV') {
+      fs.copyFileSync(win._filePath, nextPath);
+      fs.unlinkSync(win._filePath);
+    } else {
+      throw e;
+    }
+  }
+  win._filePath = nextPath;
+  win._displayName = null;
+  updateWindowTitle(win);
+  app.addRecentDocument(nextPath);
+  return { filePath: nextPath, fileName: path.basename(nextPath) };
+}
+
 async function handleRenameFile(win, requestedName) {
   win = win || focusedWin();
   if (!win) throw new Error('No active document.');
@@ -347,16 +417,43 @@ async function handleRenameFile(win, requestedName) {
   if (nextPath === win._filePath) {
     return { filePath: win._filePath, fileName: path.basename(win._filePath) };
   }
-  if (fs.existsSync(nextPath)) {
-    throw new Error(`A file named "${newName}" already exists in this folder.`);
-  }
+  return relocateFile(win, nextPath);
+}
 
-  fs.renameSync(win._filePath, nextPath);
-  win._filePath = nextPath;
-  win._displayName = null;
-  updateWindowTitle(win);
-  app.addRecentDocument(nextPath);
-  return { filePath: nextPath, fileName: path.basename(nextPath) };
+async function handleMoveFile(win) {
+  win = win || focusedWin();
+  if (!win) throw new Error('No active document.');
+  if (!win._filePath) throw new Error('Save the document before moving it.');
+
+  const currentDir = path.dirname(win._filePath);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Move To',
+    message: 'Choose a destination folder',
+    defaultPath: currentDir,
+    buttonLabel: 'Move',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (canceled || !filePaths.length) return null;
+
+  const targetDir = filePaths[0];
+  if (targetDir === currentDir) {
+    return { filePath: win._filePath, fileName: path.basename(win._filePath) };
+  }
+  const nextPath = path.join(targetDir, path.basename(win._filePath));
+  return relocateFile(win, nextPath);
+}
+
+async function handleMoveFileFromMenu(win) {
+  const target = win || focusedWin();
+  try {
+    const result = await handleMoveFile(target);
+    if (result && target && !target.isDestroyed()) {
+      target.webContents.send('file-location-changed', result);
+    }
+  } catch (e) {
+    const message = e && e.message ? String(e.message) : String(e);
+    dialog.showErrorBox('Error moving file', message);
+  }
 }
 
 function handleRevealInFinder(win) {
@@ -397,6 +494,10 @@ ipcMain.handle('get-content', async (event) => {
 
 ipcMain.handle('rename-file', (event, newName) => {
   return handleRenameFile(winFromEvent(event), newName);
+});
+
+ipcMain.handle('move-file', (event) => {
+  return handleMoveFile(winFromEvent(event));
 });
 
 ipcMain.handle('save-file', (event) => {
@@ -462,6 +563,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { label: 'Check for Updates…', click: () => checkForUpdates() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -487,6 +589,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => handleSaveFile() },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => handleSaveAsFile() },
+        { label: 'Move To…', click: () => handleMoveFileFromMenu() },
         { label: 'Duplicate', click: () => handleDuplicateFile() },
         { type: 'separator' },
         ...(isMac ? [{ role: 'close' }] : [{ role: 'quit' }]),
@@ -743,6 +846,7 @@ function applyCSP() {
 app.whenReady().then(() => {
   applyCSP();
   buildMenu();
+  startUpdater();
 
   // Cold launch: a non-md file was queued for conversion before app was ready
   if (pendingFileToConvert) {
@@ -769,4 +873,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  if (updaterProcess && !updaterProcess.killed) {
+    updaterProcess.kill('SIGTERM');
+  }
 });

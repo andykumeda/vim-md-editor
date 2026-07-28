@@ -1,7 +1,7 @@
 {
   "name": "vimdown",
   "productName": "VimDown",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "description": "A Vim-keybinding markdown editor with split-pane preview",
   "author": "andy@kumeda.com",
   "type": "module",
@@ -15,10 +15,12 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "install:mac": "tsx script/install-macos-app.ts",
+    "signing:setup": "bash script/create-macos-signing-identity.sh",
+    "release:mac": "tsx script/build-macos-release.ts",
     "electron:dev": "concurrently \"vite --config vite.config.ts\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
-    "electron:build": "vite build && electron-builder --mac --arm64",
-    "electron:build:x64": "vite build && electron-builder --mac --x64",
-    "electron:build:universal": "vite build && electron-builder --mac --universal"
+    "electron:build": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
+    "electron:build:x64": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --x64",
+    "electron:build:universal": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal"
   },
   "build": {
     "appId": "com.kumeda.vimdown",
@@ -27,6 +29,7 @@
     "directories": {
       "output": "release"
     },
+    "afterPack": "script/sign-macos-app.cjs",
     "files": [
       "electron/**/*",
       "dist/public/**/*",
@@ -46,6 +49,10 @@
         }
       ],
       "extendInfo": {
+        "SUFeedURL": "https://raw.githubusercontent.com/andykumeda/vim-md-editor/main/docs/appcast.xml",
+        "SUPublicEDKey": "l/SNkU3yHLO0zYGfUf9+CPhK4n7+RO0G8DL/pq5EXGI=",
+        "SUEnableAutomaticChecks": true,
+        "SUScheduledCheckInterval": 86400,
         "CFBundleDocumentTypes": [
           {
             "CFBundleTypeName": "Markdown File",
@@ -67,10 +74,29 @@
             "CFBundleTypeRole": "Viewer",
             "LSHandlerRank": "Alternate",
             "CFBundleTypeExtensions": [
-              "pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls",
-              "html", "htm", "csv", "xml", "json", "epub",
-              "png", "jpg", "jpeg", "tiff", "bmp",
-              "mp3", "wav", "m4a", "flac", "ogg",
+              "pdf",
+              "docx",
+              "doc",
+              "pptx",
+              "ppt",
+              "xlsx",
+              "xls",
+              "html",
+              "htm",
+              "csv",
+              "xml",
+              "json",
+              "epub",
+              "png",
+              "jpg",
+              "jpeg",
+              "tiff",
+              "bmp",
+              "mp3",
+              "wav",
+              "m4a",
+              "flac",
+              "ogg",
               "zip"
             ]
           }
@@ -139,8 +165,19 @@
       },
       {
         "ext": [
-          "pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls",
-          "html", "htm", "csv", "xml", "json", "epub"
+          "pdf",
+          "docx",
+          "doc",
+          "pptx",
+          "ppt",
+          "xlsx",
+          "xls",
+          "html",
+          "htm",
+          "csv",
+          "xml",
+          "json",
+          "epub"
         ],
         "name": "Convertible Document",
         "description": "Document VimDown can convert to Markdown",
@@ -247,18 +284,18 @@
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.8",
     "electron": "^41.1.1",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "^26.15.7",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.20.5",
+    "tsx": "^4.23.1",
     "typescript": "5.6.3",
     "vite": "^7.3.0",
     "wait-on": "^9.0.4"
   },
   "overrides": {
     "drizzle-kit": {
-      "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
+      "@esbuild-kit/esm-loader": "npm:tsx@^4.23.1"
     }
   },
   "optionalDependencies": {

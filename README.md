@@ -21,11 +21,23 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 ### Additional desktop features
 
 - Native hidden-inset titlebar with traffic lights
-- Document title control with filename rename, saved/unsaved status, and folder reveal
+- Document title control with inline filename rename, overwrite confirmation, saved/unsaved status, folder move, and folder reveal
 - Native represented filename metadata for macOS document/proxy behavior
 - Recent Documents in the Dock menu
-- File > Duplicate creates an unsaved copy in a new window
+- File > Move To… relocates the current saved document; File > Duplicate creates an unsaved copy in a new window
+- Sparkle updates — daily automatic checks plus VimDown > Check for Updates…
 - File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
+
+### Installing on a MacBook
+
+Download the latest Apple Silicon DMG from
+[GitHub Releases](https://github.com/andykumeda/vim-md-editor/releases/latest),
+open it, and drag VimDown into Applications. On the first launch, right-click
+VimDown and choose **Open**. After that, VimDown checks for signed updates once
+a day; use **VimDown → Check for Updates…** to check immediately.
+
+See [docs/UPDATING.md](docs/UPDATING.md) for installation, troubleshooting,
+and release instructions.
 
 ### Desktop keyboard shortcuts
 
@@ -69,6 +81,12 @@ Starts Vite on port 5173, then launches Electron against it. Hot-reload is activ
 
 ### Building the macOS app
 
+> **Every change ships the same way.** Whenever you make a change and rebuild,
+> the build is not finished until the new `VimDown.app` has been moved into
+> `/Applications/VimDown.app`. Installing into `/Applications` is the final,
+> required step of every change-and-build cycle — otherwise you keep running
+> the previously installed version.
+
 Before building a releasable app, bump the package version so macOS and
 LaunchServices see a new app version:
 
@@ -86,11 +104,18 @@ npm run build                     # Apple Silicon production build, then install
 npm run electron:build            # Apple Silicon package only → release/VimDown-${version}-arm64.dmg
 npm run electron:build:x64        # Intel package only
 npm run electron:build:universal  # Both architectures package only
+npm run release:mac               # Signed Apple Silicon DMG + Sparkle appcast
 ```
 
-The production build copies the newest matching `VimDown.app` bundle from
+`npm run build` is the complete cycle: it builds the app and then performs the
+final move into `/Applications`. The `electron:build*` commands only package
+the app into `release/` — they do **not** install it, so you must finish the
+cycle yourself by running the install step below.
+
+The install step copies the newest matching `VimDown.app` bundle from
 `release/` to `/Applications/VimDown.app` and registers it with LaunchServices.
-If VimDown is running, quit it and rerun:
+Always run it as the last step after a package-only build, and rerun it if
+VimDown was running during the copy (quit VimDown first):
 
 ```bash
 npm run install:mac
@@ -103,7 +128,10 @@ launch VimDown once or register it manually:
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/VimDown.app
 ```
 
-> The app is not code-signed. On first launch: right-click → Open, or System Settings → Privacy & Security → Open Anyway.
+Official releases use a stable self-signed identity and Sparkle EdDSA
+signatures, but are not yet notarized with an Apple Developer ID. On first
+launch: right-click → Open, or use System Settings → Privacy & Security → Open
+Anyway.
 
 ---
 
@@ -192,6 +220,9 @@ client/src/
 electron/
   main.cjs           Electron main process — window, native menus, file I/O
   preload.cjs        Context bridge exposing a typed IPC API to the renderer
+
+macos-updater/
+  Sources/            Native Sparkle updater helper
 
 server/
   index.ts           Express entry point (serves static build in production)
