@@ -4,6 +4,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, session } = require('e
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { isChildRunning } = require('./updater-process.cjs');
 
 // ─── Dev mode detection ───────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -50,7 +51,7 @@ async function checkForUpdates() {
     return;
   }
 
-  if (!updaterProcess || updaterProcess.killed) {
+  if (!isChildRunning(updaterProcess)) {
     startUpdater(true);
   } else {
     updaterProcess.kill('SIGUSR1');
@@ -58,7 +59,11 @@ async function checkForUpdates() {
 }
 
 function startUpdater(checkImmediately = false) {
-  if (isDev || process.platform !== 'darwin' || updaterProcess) return;
+  if (
+    isDev ||
+    process.platform !== 'darwin' ||
+    isChildRunning(updaterProcess)
+  ) return;
 
   const helperPath = path.join(process.resourcesPath, 'VimDownUpdater');
   const hostBundlePath = path.resolve(process.execPath, '..', '..', '..');
@@ -876,7 +881,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  if (updaterProcess && !updaterProcess.killed) {
+  if (isChildRunning(updaterProcess)) {
     updaterProcess.kill('SIGTERM');
   }
 });

@@ -1,7 +1,7 @@
 {
   "name": "vimdown",
   "productName": "VimDown",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "A Vim-keybinding markdown editor with split-pane preview",
   "author": "andy@kumeda.com",
   "type": "module",
@@ -17,6 +17,7 @@
     "install:mac": "tsx script/install-macos-app.ts",
     "signing:setup": "bash script/create-macos-signing-identity.sh",
     "release:mac": "tsx script/build-macos-release.ts",
+    "test:updater": "node --test electron/updater-process.test.cjs",
     "electron:dev": "concurrently \"vite --config vite.config.ts\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:build": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --arm64",
     "electron:build:x64": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --x64",
