@@ -5,6 +5,8 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { isChildRunning } = require('./updater-process.cjs');
+const { relocatePath } = require('./relocate-path.cjs');
+const { normalizeFileName } = require('./file-name.cjs');
 
 // ─── Dev mode detection ───────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -101,7 +103,7 @@ function createWindow(opts = {}) {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       additionalArguments,
     },
   });
@@ -383,23 +385,14 @@ async function relocateFile(win, nextPath) {
     const { response } = await dialog.showMessageBox(win, {
       type: 'warning',
       buttons: ['Replace', 'Cancel'],
-      defaultId: 0,
+      defaultId: 1,
       cancelId: 1,
       message: `“${path.basename(nextPath)}” already exists. Do you want to replace it?`,
       detail: 'A file with the same name already exists in this folder. Replacing it will overwrite its current contents.',
     });
     if (response !== 0) return null;
   }
-  try {
-    fs.renameSync(win._filePath, nextPath);
-  } catch (e) {
-    if (e && e.code === 'EXDEV') {
-      fs.copyFileSync(win._filePath, nextPath);
-      fs.unlinkSync(win._filePath);
-    } else {
-      throw e;
-    }
-  }
+  relocatePath(win._filePath, nextPath);
   win._filePath = nextPath;
   win._displayName = null;
   updateWindowTitle(win);
@@ -412,11 +405,7 @@ async function handleRenameFile(win, requestedName) {
   if (!win) throw new Error('No active document.');
   if (!win._filePath) throw new Error('Save the document before renaming it.');
 
-  const newName = typeof requestedName === 'string' ? requestedName.trim() : '';
-  if (!newName) throw new Error('Enter a file name.');
-  if (newName === '.' || newName === '..' || path.basename(newName) !== newName) {
-    throw new Error('File names cannot include folder separators.');
-  }
+  const newName = normalizeFileName(requestedName);
 
   const nextPath = path.join(path.dirname(win._filePath), newName);
   if (nextPath === win._filePath) {

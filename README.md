@@ -24,8 +24,8 @@ A Vim-keybinding markdown editor with live split-pane preview. Ships as both a *
 - Document title control with inline filename rename, overwrite confirmation, saved/unsaved status, folder move, and folder reveal
 - Native represented filename metadata for macOS document/proxy behavior
 - Recent Documents in the Dock menu
-- File > Move To… relocates the current saved document; File > Duplicate creates an unsaved copy in a new window
-- Sparkle updates — daily automatic checks plus VimDown > Check for Updates…
+- File > Move To… relocates the current saved document (safe cross-volume moves); File > Duplicate creates an unsaved copy in a new window
+- Sparkle updates — daily automatic checks plus VimDown > Check for Updates… (EdDSA-signed DMGs; self-signed app identity)
 - File associations — double-clicking `.md`, `.markdown`, `.mdown`, `.mkd`, or `.txt` opens the file directly; window is raised automatically whether the app is launching fresh, running in the background, or already open with the window closed
 
 ### Installing on a MacBook
@@ -220,30 +220,48 @@ client/src/
 electron/
   main.cjs           Electron main process — window, native menus, file I/O
   preload.cjs        Context bridge exposing a typed IPC API to the renderer
+  relocate-path.cjs  Same-volume rename + safe cross-volume (EXDEV) move
+  file-name.cjs      Basename validation for inline rename
+  *.test.cjs         Node test runner coverage for updater + file helpers
 
 macos-updater/
-  Sources/            Native Sparkle updater helper
+  Sources/           Native Sparkle updater helper (VimDownUpdater)
+
+docs/
+  UPDATING.md        Install, in-app updates, and release publishing
+  appcast.xml        Sparkle feed (latest signed release)
+
+script/
+  build.ts           Vite + esbuild build orchestration (desktop full build)
+  build-macos-release.ts  Signed Apple Silicon DMG + appcast rewrite
+  sign-macos-app.cjs      Embed Sparkle helper and codesign the app bundle
+  install-macos-app.ts    Copy the newest build into /Applications
 
 server/
   index.ts           Express entry point (serves static build in production)
 
-script/
-  build.ts           Vite + esbuild build orchestration (desktop full build)
-
 deploy.sh            Build + rsync deploy script (web)
 nginx-vd.conf        Sample nginx site config
+```
+
+## Development checks
+
+```bash
+npm run check        # TypeScript
+npm test             # Electron helper tests (relocate, rename, updater)
 ```
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Desktop shell | Electron 41 |
+| Desktop shell | Electron 41 (sandboxed renderer, contextIsolation) |
+| Updates | Sparkle via native VimDownUpdater helper |
 | UI framework | React 18 + TypeScript |
 | Editor | CodeMirror 6 |
 | Vim keybindings | @replit/codemirror-vim |
 | Markdown rendering | marked + DOMPurify |
-| Styling | Tailwind CSS + shadcn/ui |
+| Styling | Tailwind CSS + shadcn/ui (button, input, popover, switch, tooltip) |
 | Build | Vite + electron-builder |
 | Web deploy | rsync + nginx |
 
@@ -252,3 +270,5 @@ nginx-vd.conf        Sample nginx site config
 - Node.js 18+
 - npm 9+
 - (Desktop builds) macOS with Xcode command-line tools
+- (Official releases) Swift toolchain for the Sparkle helper, plus the
+  `vimdown-dev` signing identity on the Mac mini (`npm run signing:setup`)

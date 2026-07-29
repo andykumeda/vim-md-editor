@@ -2,6 +2,26 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const RECEIVE_CHANNELS = new Set([
+  'menu-new-file',
+  'menu-open-file',
+  'file-saved',
+  'file-location-changed',
+  'menu-find',
+  'menu-toggle-preview',
+  'menu-toggle-vim',
+  'menu-toggle-dark',
+  'menu-print',
+  'menu-export-pdf',
+  'menu-toggle-editor',
+  'menu-set-view-mode',
+]);
+
+function on(channel, listener) {
+  if (!RECEIVE_CHANNELS.has(channel)) return;
+  ipcRenderer.on(channel, listener);
+}
+
 // Expose a safe, typed API to the renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   // Notify main that content changed
@@ -23,18 +43,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('sync-dark-state', { dark }),
 
   // Menu-triggered actions → renderer listens for these
-  onNewFile: (cb) => ipcRenderer.on('menu-new-file', (event, data) => cb(data)),
-  onOpenFile: (cb) => ipcRenderer.on('menu-open-file', (event, data) => cb(data)),
-  onFileSaved: (cb) => ipcRenderer.on('file-saved', (event, data) => cb(data)),
-  onFileLocationChanged: (cb) => ipcRenderer.on('file-location-changed', (event, data) => cb(data)),
-  onFind: (cb) => ipcRenderer.on('menu-find', cb),
-  onTogglePreview: (cb) => ipcRenderer.on('menu-toggle-preview', cb),
-  onToggleVim: (cb) => ipcRenderer.on('menu-toggle-vim', (event, data) => cb(data)),
-  onToggleDark: (cb) => ipcRenderer.on('menu-toggle-dark', (event, data) => cb(data)),
-  onPrint: (cb) => ipcRenderer.on('menu-print', cb),
-  onExportPdf: (cb) => ipcRenderer.on('menu-export-pdf', cb),
-  onToggleEditor: (cb) => ipcRenderer.on('menu-toggle-editor', cb),
-  onSetViewMode: (cb) => ipcRenderer.on('menu-set-view-mode', (event, data) => cb(data)),
+  onNewFile: (cb) => on('menu-new-file', (event, data) => cb(data)),
+  onOpenFile: (cb) => on('menu-open-file', (event, data) => cb(data)),
+  onFileSaved: (cb) => on('file-saved', (event, data) => cb(data)),
+  onFileLocationChanged: (cb) => on('file-location-changed', (event, data) => cb(data)),
+  onFind: (cb) => on('menu-find', cb),
+  onTogglePreview: (cb) => on('menu-toggle-preview', cb),
+  onToggleVim: (cb) => on('menu-toggle-vim', (event, data) => cb(data)),
+  onToggleDark: (cb) => on('menu-toggle-dark', (event, data) => cb(data)),
+  onPrint: (cb) => on('menu-print', cb),
+  onExportPdf: (cb) => on('menu-export-pdf', cb),
+  onToggleEditor: (cb) => on('menu-toggle-editor', cb),
+  onSetViewMode: (cb) => on('menu-set-view-mode', (event, data) => cb(data)),
 
   // Initial window mode passed via additionalArguments at window creation
   getInitMode: () => {
@@ -53,8 +73,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveAndCloseFile: () => ipcRenderer.invoke('save-and-close-file'),
   closeWindow: (force) => ipcRenderer.invoke('close-window', { force }),
 
-  // Remove listeners (cleanup)
-  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+  // Remove listeners (cleanup) — only known main→renderer channels
+  removeAllListeners: (channel) => {
+    if (!RECEIVE_CHANNELS.has(channel)) return;
+    ipcRenderer.removeAllListeners(channel);
+  },
 
   // Is running inside Electron?
   isElectron: true,

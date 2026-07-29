@@ -2,26 +2,30 @@
 
 ## First install
 
-VimDown currently ships an Apple Silicon build for M-series Macs.
+VimDown currently ships an Apple Silicon build for M-series Macs. The latest
+public release is published on
+[GitHub Releases](https://github.com/andykumeda/vim-md-editor/releases/latest)
+and announced by the Sparkle feed at
+[`docs/appcast.xml`](./appcast.xml) on `main`.
 
-1. Download `VimDown-<version>-arm64.dmg` from the
-   [latest GitHub release](https://github.com/andykumeda/vim-md-editor/releases/latest).
+1. Download `VimDown-<version>-arm64.dmg` from the latest GitHub release.
 2. Open the DMG and drag **VimDown** into **Applications**.
 3. On first launch, right-click **VimDown** in Applications and choose
    **Open**, then confirm **Open**.
 
 The extra first-launch step is required because VimDown uses a stable
-self-signed identity rather than an Apple Developer ID. The downloaded update
-itself is protected by Sparkle's EdDSA signature.
+self-signed identity (`vimdown-dev`) rather than an Apple Developer ID. The
+downloaded update itself is protected by Sparkle's EdDSA signature.
 
 ## In-app updates
 
-VimDown uses Sparkle, the same updater used by Vox.
+VimDown embeds Sparkle through a native helper (`VimDownUpdater`).
 
-- VimDown checks for new releases once a day.
+- VimDown checks for new releases once a day while the app is running.
 - To check immediately, choose **VimDown → Check for Updates…**.
 - Sparkle downloads the new DMG, verifies its EdDSA signature, replaces the
   application, and relaunches VimDown.
+- Quitting VimDown stops the updater helper so it does not linger after exit.
 
 Documents are never stored inside the application bundle, so replacing or
 updating VimDown does not affect them.
@@ -44,6 +48,8 @@ and persistent `vimdown-dev` signing identity live.
 ```bash
 npm ci
 npm run signing:setup
+npm run check
+npm test
 npm run release:mac
 ```
 
